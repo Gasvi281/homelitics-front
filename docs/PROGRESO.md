@@ -810,3 +810,37 @@ filtros de `/dev/explorar` cargan sin error y el historial 2.4 de un lead
 **Pendiente:** avisar a L3 (bot de Telegram) y a L1 de que el front ya usa
 `TELEGRAM`; si el API vuelve a cambiar el enum, el síntoma será el mismo
 mensaje de zod.
+
+## 2026-09-15 — Encuesta 2.5: abrir el link ya no cierra la cita
+
+**Problema:** `EncuestaFlujo.tsx` hacía `PATCH {"status":"COMPLETED"}`
+(terminal, irreversible) en un `useEffect` en cuanto se abría
+`/citas/{id}/encuesta` sobre una visita ya pasada. Bastaba con abrir el link
+— por ejemplo desde `/dev/explorar`, que lo ofrece en toda cita, incluidas
+las de otros agentes — para cerrar una cita real. Además lo intentaba sobre
+cualquier estado no terminal, incluido `PENDING_CONFIRMATION` (una visita que
+el agente nunca aceptó quedaba "realizada").
+
+**Hecho:** el parche del bloqueo 2 sigue existiendo, pero ahora:
+- Solo corre tras un paso explícito: "¿sí pudiste ir a la visita?" →
+  "Sí, fui a la visita" hace el `PATCH` y abre el formulario; "No, no pude
+  ir" no escribe nada y ofrece un enlace a `/citas/{id}` para reagendar.
+- Solo sobre `CONFIRMED` o `RESCHEDULED` (`COMPLETABLE`). `PENDING_CONFIRMATION`,
+  `CANCELLED` y `NO_SHOW` muestran el motivo sin llamar a la red — antes
+  `CANCELLED`/`NO_SHOW` se descubrían provocando el 409 del `PATCH`.
+- `COMPLETED` sigue como antes: revisa `GET .../feedback` y muestra
+  "ya enviaste" o el formulario.
+
+Probado a mano contra el API real, solo por caminos que no escriben: la
+cita `022c6a3c-6446-4d91-a170-6ecdb41c017f` (`CONFIRMED`, ya pasada) muestra
+la pregunta al abrir y sigue `CONFIRMED` después (en la red solo hay `GET`,
+ningún `PATCH`); "No, no pude ir" deja el aviso con el enlace. Las citas
+`66177102-...` (`COMPLETED`) y `eae73b1d-...` (`CANCELLED`) se comportan como
+antes. **"Sí, fui a la visita" no se pulsó** contra el API real, para no
+cerrar una cita compartida: hace el mismo `PATCH` que ya se había verificado
+en vivo el 2026-09-14. No había ninguna cita pasada `RESCHEDULED` ni
+`PENDING_CONFIRMATION` para probar esos dos estados. `tsc` y `eslint`:
+limpios.
+
+**Pendiente:** sigue siendo un parche. La forma correcta es que L1 dé una
+manera real de cerrar visitas (o que el feedback no exija `COMPLETED`).

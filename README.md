@@ -234,8 +234,10 @@ estado sin nada.
 - `APPOINTMENT_ID` (jueves 17, en el futuro del mock): "todavía no llega la
   hora de tu visita", sin formulario.
 - `APPOINTMENT_ID_CANCELADA`: "la encuesta ya no aplica".
-- `APPOINTMENT_ID_NO_COMPLETADA`: se completa sola (parche provisional del
-  bloqueo 2, ver `docs/SPRINT_LINEA2.md`) y abre el formulario.
+- `APPOINTMENT_ID_NO_COMPLETADA`: pregunta "¿sí pudiste ir a la visita?".
+  Con "Sí, fui a la visita" la marca `COMPLETED` (parche provisional del
+  bloqueo 2, ver `docs/SPRINT_LINEA2.md`) y abre el formulario; con "No, no
+  pude ir" no escribe nada. Abrir el link por sí solo nunca modifica la cita.
 - `APPOINTMENT_ID_COMPLETADA`: abre el formulario directo.
 
 ### Dos herramientas de desarrollo, ninguna de las dos es una pantalla del sprint

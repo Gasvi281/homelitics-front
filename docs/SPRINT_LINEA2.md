@@ -71,7 +71,10 @@ construye contra `lib/mock/`.
    equipo e implementada en la tarea 2.5: la propia pantalla de la encuesta
    (no hay pantalla de agente para citas en este repo, ver bloqueo de tiempo
    real en la nota de la tarea 2.3) hace `PATCH {"status":"COMPLETED"}` y
-   enseguida abre el formulario, una vez ya pasó la hora de la visita. Vive
+   abre el formulario, una vez ya pasó la hora de la visita. Desde el
+   2026-09-15 el `PATCH` solo sale si el cliente responde "Sí, fui a la
+   visita", y solo sobre citas `CONFIRMED` o `RESCHEDULED`: abrir el link ya
+   no cierra la cita por sí solo (antes lo hacía, y es irreversible). Vive
    aislada en `completarVisitaProvisional()`
    (`components/EncuestaFlujo.tsx`), la única función que hace ese `PATCH`
    con ese propósito — se borra entera, sin tocar el resto de la pantalla, si

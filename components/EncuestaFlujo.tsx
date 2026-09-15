@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, HomeliticsError } from "@/lib/homelitics-navegador";
 import type { Appointment, AppointmentStatus } from "@/lib/schemas";
@@ -8,6 +9,9 @@ import { EncuestaAcciones } from "@/components/EncuestaAcciones";
 
 type Estado =
   | { tipo: "verificando" }
+  | { tipo: "preguntar_asistencia" }
+  | { tipo: "completando" }
+  | { tipo: "no_asistio" }
   | { tipo: "no_aplica"; motivo: string }
   | { tipo: "ya_enviada" }
   | { tipo: "lista" }
@@ -23,42 +27,49 @@ type Estado =
  * AC de HU-14 pide que el formulario "aparezca como pendiente después de la
  * fecha y hora de la visita", que no es lo mismo que `COMPLETED`.
  *
- * Esta función cierra esa brecha: si ya pasó la hora de la visita (lo validó
- * `page.tsx` antes de montar este componente) y todavía no está `COMPLETED`,
- * esta misma pantalla la marca así con `PATCH {"status":"COMPLETED"}` antes
- * de mostrar el formulario. Es la única función del repo que hace esa
- * llamada con ese propósito — si la línea 1 agrega una forma real de cerrar
- * visitas (o cambia la regla del 409), se borra esta función completa y la
- * línea que la llama en `verificar()`, sin tocar nada más de la pantalla.
- *
- * Si la cita ya es terminal en otro estado (`CANCELLED`, `NO_SHOW`), el PATCH
- * da 409 "ya es terminal": ahí no hay nada que completar.
+ * Esta función cierra esa brecha con `PATCH {"status":"COMPLETED"}`, que es
+ * TERMINAL e irreversible. Por eso solo se llama cuando el cliente responde
+ * "Sí, fui a la visita" (`confirmarAsistencia`), nunca por solo abrir el
+ * link, y solo sobre `COMPLETABLE`: una visita que el agente nunca confirmó
+ * no se da por realizada. Es la única función del repo que hace esa llamada
+ * con ese propósito — si la línea 1 agrega una forma real de cerrar visitas
+ * (o cambia la regla del 409), se borra esta función completa y el paso de
+ * `preguntar_asistencia`, sin tocar nada más de la pantalla.
  */
 async function completarVisitaProvisional(cita: Appointment): Promise<Appointment> {
-  if (cita.status === "COMPLETED") return cita;
   return api.actualizarCita(cita.id, { status: "COMPLETED" });
 }
 
+/** Únicos estados que se pueden dar por realizados: la visita estaba en pie. */
+const COMPLETABLE: ReadonlySet<AppointmentStatus> = new Set(["CONFIRMED", "RESCHEDULED"]);
+
 const MOTIVO_NO_APLICA: Partial<Record<AppointmentStatus, string>> = {
+  PENDING_CONFIRMATION: "El agente nunca confirmó esta visita, así que no hay encuesta pendiente.",
   CANCELLED: "Esta visita se canceló, así que la encuesta ya no aplica.",
   NO_SHOW: "Quedó registrado que no se presentó a esta visita, así que la encuesta no aplica.",
 };
 
+function estadoInicial(cita: Appointment): Estado {
+  if (cita.status === "COMPLETED") return { tipo: "verificando" };
+  if (COMPLETABLE.has(cita.status)) return { tipo: "preguntar_asistencia" };
+  return {
+    tipo: "no_aplica",
+    motivo: MOTIVO_NO_APLICA[cita.status] ?? "Esta visita ya no admite encuesta.",
+  };
+}
+
 /**
- * Único Client Component de `.../encuesta`. Todo lo que sigue al filtro de
- * "todavía no ha pasado la visita" (que sí puede resolverse en el servidor,
- * `page.tsx`, porque es de solo lectura) vive acá y no en el servidor a
- * propósito: marcar `COMPLETED` (arriba) y comprobar si ya hay una encuesta
- * (`GET .../feedback`) tienen que pasar por la MISMA mitad del API que el
- * envío del formulario. Con `USE_MOCKS=true` cada mitad (`lib/homelitics.ts`
- * en el servidor, `lib/homelitics-navegador.ts` en el navegador) tiene su
- * propia copia en memoria de `lib/mock/`, sin estado compartido entre ellas
- * (mismo límite que ya se documentó en la bitácora de la tarea 2.3); si el
- * `PATCH` se hiciera en el servidor y el `POST` del formulario en el
- * navegador, el navegador nunca se enteraría de que ya quedó `COMPLETED` y
- * el envío real (2.5) fallaría siempre con 409 contra el mock. Contra el API
- * real no habría problema (una sola base de datos), pero aun así conviene
- * mantener todo el flujo de mutaciones en un solo lado.
+ * Único Client Component de `.../encuesta`. Lo que es de solo lectura (cita
+ * inexistente, visita que todavía no ha pasado) lo resuelve `page.tsx` en el
+ * servidor. Todo lo que implica escribir — marcar `COMPLETED` (arriba) y el
+ * envío del formulario — y la comprobación de si ya hay encuesta
+ * (`GET .../feedback`) viven acá a propósito: tienen que pasar por la MISMA
+ * mitad del API. Con `USE_MOCKS=true` cada mitad (`lib/homelitics.ts` en el
+ * servidor, `lib/homelitics-navegador.ts` en el navegador) tiene su propia
+ * copia en memoria de `lib/mock/`, sin estado compartido entre ellas (mismo
+ * límite que ya se documentó en la bitácora de la tarea 2.3); si el `PATCH`
+ * se hiciera en el servidor y el `POST` del formulario en el navegador, el
+ * envío fallaría siempre con 409 contra el mock.
  */
 export function EncuestaFlujo({
   appointmentId,
@@ -67,53 +78,89 @@ export function EncuestaFlujo({
   appointmentId: string;
   citaInicial: Appointment;
 }) {
-  const [estado, setEstado] = useState<Estado>({ tipo: "verificando" });
+  const [estado, setEstado] = useState<Estado>(() => estadoInicial(citaInicial));
 
+  // Solo una visita ya COMPLETED puede tener encuesta previa: el API no
+  // acepta feedback antes de ese estado.
   useEffect(() => {
+    if (citaInicial.status !== "COMPLETED") return;
     let cancelado = false;
 
-    async function verificar() {
-      let cita = citaInicial;
-
-      if (cita.status !== "COMPLETED") {
-        try {
-          cita = await completarVisitaProvisional(cita);
-        } catch (e) {
-          if (cancelado) return;
-          if (e instanceof HomeliticsError && e.kind === "conflicto") {
-            setEstado({
-              tipo: "no_aplica",
-              motivo: MOTIVO_NO_APLICA[cita.status] ?? "Esta visita ya no se puede marcar como realizada.",
-            });
-            return;
-          }
-          setEstado({ tipo: "error", mensaje: mensajeError(e) });
-          return;
-        }
-      }
-
-      try {
-        const feedbackPrevio = await api.feedbackDeCita(appointmentId);
+    api.feedbackDeCita(appointmentId).then(
+      (previo) => {
         if (cancelado) return;
-        if (feedbackPrevio.some((f) => f.submitted_by === "CLIENT")) {
-          setEstado({ tipo: "ya_enviada" });
-          return;
-        }
-        setEstado({ tipo: "lista" });
-      } catch (e) {
-        if (cancelado) return;
-        setEstado({ tipo: "error", mensaje: mensajeError(e) });
-      }
-    }
+        setEstado(
+          previo.some((f) => f.submitted_by === "CLIENT") ? { tipo: "ya_enviada" } : { tipo: "lista" },
+        );
+      },
+      (e) => {
+        if (!cancelado) setEstado({ tipo: "error", mensaje: mensajeError(e) });
+      },
+    );
 
-    verificar();
     return () => {
       cancelado = true;
     };
-  }, [appointmentId, citaInicial]);
+  }, [appointmentId, citaInicial.status]);
+
+  async function confirmarAsistencia() {
+    setEstado({ tipo: "completando" });
+    try {
+      await completarVisitaProvisional(citaInicial);
+      // Recién quedó COMPLETED: no puede haber encuesta previa, el API la
+      // habría rechazado antes de este PATCH.
+      setEstado({ tipo: "lista" });
+    } catch (e) {
+      if (e instanceof HomeliticsError && e.kind === "conflicto") {
+        setEstado({
+          tipo: "no_aplica",
+          motivo: "Esta visita cambió de estado mientras tanto y ya no admite encuesta.",
+        });
+        return;
+      }
+      setEstado({ tipo: "error", mensaje: mensajeError(e) });
+    }
+  }
 
   if (estado.tipo === "verificando") {
     return <Aviso>Un momento, estamos revisando tu visita…</Aviso>;
+  }
+  if (estado.tipo === "preguntar_asistencia") {
+    return (
+      <div className="rounded-lg border border-neutral-200 p-4 text-sm text-neutral-700">
+        <p>Antes de la encuesta: ¿sí pudiste ir a la visita?</p>
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+          <button
+            type="button"
+            onClick={confirmarAsistencia}
+            className="rounded bg-neutral-900 px-4 py-2 text-center font-medium text-white"
+          >
+            Sí, fui a la visita
+          </button>
+          <button
+            type="button"
+            onClick={() => setEstado({ tipo: "no_asistio" })}
+            className="rounded border border-neutral-300 px-4 py-2 text-center font-medium text-neutral-700"
+          >
+            No, no pude ir
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (estado.tipo === "completando") {
+    return <p className="text-sm text-neutral-500">Guardando…</p>;
+  }
+  if (estado.tipo === "no_asistio") {
+    return (
+      <Aviso>
+        Entendido, no marcamos nada. Si quieres, puedes{" "}
+        <Link className="underline" href={`/citas/${appointmentId}`}>
+          buscar un nuevo horario para la visita
+        </Link>
+        .
+      </Aviso>
+    );
   }
   if (estado.tipo === "no_aplica") {
     return <Aviso variante="error">{estado.motivo}</Aviso>;
