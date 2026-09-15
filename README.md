@@ -83,6 +83,83 @@ cualquier acción que mande datos (crear/mover/cancelar una cita, agregar una
 nota, enviar una encuesta) escribe en la base compartida de verdad.** No es
 un ambiente de prueba aislado.
 
+### Probar contra el API real, paso a paso
+
+1. **Cambia el modo y reinicia el servidor.** En `.env.local`:
+   ```
+   USE_MOCKS=false
+   NEXT_PUBLIC_USE_MOCKS=false
+   ```
+   Next solo lee `.env.local` al arrancar — si el servidor ya estaba
+   corriendo, párralo y vuelve a correr `npm run dev` (o usa una pestaña
+   nueva del navegador si vienes de un reinicio, ver el quirk del dev server
+   más abajo).
+
+2. **Confirma que la credencial funciona antes de tocar ninguna pantalla.**
+   El endpoint de humo pega directo al API real independientemente del modo
+   mocks (usa `lib/homelitics.ts`, no los mocks):
+   ```bash
+   curl http://localhost:3000/api/homelitics/me
+   ```
+   Si responde `{"id":"...", "agency_id":"...", "role":"AGENT", ...}` con
+   `200`, la credencial de `DEMO_AGENT_EMAIL`/`DEMO_AGENT_PASSWORD` es
+   válida y el API está respondiendo. Un `500` en `/me` fue justo el bug de
+   backend que bloqueó toda la migración a datos reales (ver
+   `docs/PROGRESO.md`, entrada del 2026-09-11) — si vuelve a pasar, no es
+   este repo, es del lado de `homelitics-crm`. La primera llamada del día
+   puede tardar 30-60s (el servicio duerme sin tráfico); si da timeout,
+   reintenta.
+
+3. **Encuentra ids reales para probar.** El front no tiene ninguna pantalla
+   que liste leads o propiedades (las cinco pantallas del sprint siempre
+   reciben un id ya conocido, por link — ver `docs/SPRINT_LINEA2.md`), así
+   que hay que buscarlos aparte. La forma más simple es pedirle al **mismo
+   proxy que usa la app** (agrega la credencial automáticamente, no hace
+   falta ningún token a mano):
+   ```bash
+   # Propiedades de la agencia, más nuevas primero
+   curl http://localhost:3000/api/homelitics/listings
+
+   # Leads de la agencia. Filtra por el agent_id de /me (paso 2) para
+   # encontrar leads que SÍ son del agente demo — importa, ver el punto 4.
+   curl "http://localhost:3000/api/homelitics/leads?agent_id=<id-de-/me>&stage=INTERESTED&limit=5"
+   ```
+   Filtros disponibles en `GET /leads`: `stage`, `agent_id`, `listing_id`,
+   `limit`, `offset`. En `GET /listings`: `status`, `operation_type`,
+   `city`, `limit`, `offset` (`docs/API_CONTRACT.md` §3). Con el `id` de un
+   lead que te sirva, arma la URL de la pantalla que quieras probar (ver la
+   sección siguiente) usando su `listing_id`.
+
+4. **Ten presente el bloqueo 5 al elegir un lead para 2.2.** El estado con
+   el que nace una cita depende de quién hace el `POST` — si el lead es de
+   este mismo agente demo (que es el caso normal, ya que el proxy autentica
+   siempre como él), la cita nace `CONFIRMED` de una, no
+   `PENDING_CONFIRMATION`. No es un bug: la pantalla ya muestra el estado
+   real que devuelva el API. Detalle completo en el bloqueo 5 de
+   `docs/SPRINT_LINEA2.md`.
+
+5. **Un lead solo acepta una visita abierta a la vez.** Si el lead que
+   elegiste ya tiene una cita `PENDING_CONFIRMATION`/`CONFIRMED`/
+   `RESCHEDULED` sin terminar, un segundo `POST /leads/{id}/appointments`
+   da 409 ("Lead already has an open visit...") — la pantalla 2.2 ya lo
+   distingue del solapamiento de horario y ofrece un enlace a esa cita
+   existente. Para probar el camino de éxito de 2.2 de nuevo, usa un lead
+   sin ninguna visita abierta (uno nuevo, o uno cuya única cita ya quedó
+   `CANCELLED`/`COMPLETED`/`NO_SHOW`).
+
+6. **El 409 de "lead en etapa terminal" necesita un lead `WON` o `LOST`.**
+   Es el único de los tres 409 de crear una cita que no se probó en vivo
+   todavía (ver `docs/PROGRESO.md`, entrada del 2026-09-14/15) — hace falta
+   filtrar `GET /leads?stage=LOST` (o `WON`) para encontrar uno con un
+   horario libre a mano.
+
+7. **Todo lo que escribas es real.** No hay ambiente aislado de pruebas:
+   crear/mover/cancelar una cita, agregar una nota o enviar una encuesta
+   queda en la base compartida. Antes de reutilizar un lead que otro del
+   equipo esté usando para una demo, avisa — `docs/PROGRESO.md` lleva un
+   registro de qué leads/citas ya se tocaron en sesiones anteriores de
+   prueba, para no pisarlos sin querer.
+
 ## Pantallas y cómo probarlas
 
 Todas las rutas de `(cliente)` reciben el `leadId`/`listingId` por query
@@ -90,6 +167,11 @@ string o por la URL — no hay sesión de cliente en el API (ver
 `docs/API_CONTRACT.md` §6), así que el enlace en sí es el único control de
 acceso. Las de `(agente)` tampoco exigen sesión todavía (`lib/session.ts`
 sigue en la etapa 1, agente demo — ver `CLAUDE.md`).
+
+Las URLs de abajo usan los ids fijos del mock para que se puedan copiar tal
+cual con `USE_MOCKS=true`. Contra el API real (`USE_MOCKS=false`) las rutas
+son exactamente las mismas — solo cambia qué id le pones, y esos salen de
+`GET /listings`/`GET /leads` como se explicó arriba.
 
 Con `USE_MOCKS=true`, estos son los ids fijos (`lib/mock/index.ts`):
 
