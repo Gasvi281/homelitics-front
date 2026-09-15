@@ -844,3 +844,13 @@ limpios.
 
 **Pendiente:** sigue siendo un parche. La forma correcta es que L1 dé una
 manera real de cerrar visitas (o que el feedback no exija `COMPLETED`).
+
+## 2026-09-15 — Contrato: dos reglas de `POST .../appointments` que faltaban
+
+Revisando `/openapi.json` para saber qué puede escribir el agente demo sobre
+leads de otros agentes, aparecieron dos reglas de `POST
+/leads/{id}/appointments` que no estaban en `docs/API_CONTRACT.md`: pedir el
+**mismo horario** de la visita abierta devuelve esa visita con `200` (el 409
+de "visita ya abierta" es solo para otro horario), y los agentes de IA solo
+reservan dentro de `/slots` con 120 minutos de anticipación. Agregadas al
+contrato. Ningún cambio de código: el `200` ya se trata como éxito.

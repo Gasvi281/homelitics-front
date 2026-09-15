@@ -167,6 +167,20 @@ anuncia "pendiente" en el mensaje de éxito — `ConfirmarCitaAcciones.tsx`
 muestra el `status` real que devuelve el `POST` (insignia de `TarjetaCita` +
 copy acorde), `CONFIRMED` incluido.
 - **201** creada.
+- **200 — mismo horario que la visita abierta.** Confirmado contra
+  `/openapi.json` el 2026-09-15 (no estaba en este documento): si el lead ya
+  tiene una visita abierta y se hace `POST` **con el mismo `scheduled_at`**,
+  el API devuelve esa visita existente con `200` en vez de crear otra — el
+  `POST` es seguro de reintentar. Con cualquier otro horario sigue siendo el
+  409 de "visita ya abierta" de abajo. El front no necesita nada especial:
+  `api.crearCita()` trata el `200` como éxito y valida la respuesta con el
+  mismo `AppointmentSchema`.
+- **Agentes de IA: solo dentro de `/slots` y con 120 minutos de
+  anticipación.** Confirmado contra `/openapi.json` el 2026-09-15: un agente
+  de IA reserva únicamente en horarios que devuelve
+  `GET /agents/{id}/slots` y al menos `VISIT_MIN_NOTICE_MINUTES` (120)
+  minutos adelante. No aplica a este front (autentica como agente humano,
+  `lib/session.ts`), pero sí al bot de L3.
 - **409 — lead en etapa terminal.** Confirmado contra el API real el
   2026-09-14 (no estaba documentado): `POST` sobre un lead `WON` o `LOST` da
   `{"detail": "Lead is LOST; a closed lead takes no visits"}` (o `WON` en el
