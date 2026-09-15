@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+/*
+ * Sin modo oscuro todavía (no está en el alcance del sprint): se fuerza claro
+ * para que los textos con colores de Tailwind pensados sobre blanco
+ * (neutral-900, neutral-500...) no pierdan contraste en un sistema con
+ * preferencia oscura.
+ */
+:root {
+  color-scheme: light;
+}
+
+body {
+  background-color: #ffffff;
+  color: #171717;
+}
