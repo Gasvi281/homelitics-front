@@ -742,3 +742,47 @@ abrir una nueva.
 contra el API real**, incluidos todos los caminos de error documentados en
 `docs/API_CONTRACT.md` salvo el 409 de "lead en etapa terminal" (2.2), que
 sigue sin un lead real `WON`/`LOST` a mano para forzarlo en vivo.
+
+## 2026-09-15 — Herramienta de dev para encontrar ids reales, y el último 409 cerrado
+
+**Motivo:** probar contra el API real venía requiriendo varios `curl` al
+proxy (`GET /me`, `GET /listings`, `GET /leads?...`) solo para conseguir un
+`leadId`/`listingId` válido antes de tocar una sola pantalla — ningún flujo
+del front lista leads (ninguna de las cinco pantallas del sprint lo pide,
+ver `docs/SPRINT_LINEA2.md`). Se agregó `app/dev/explorar/page.tsx`: **no es
+una sexta pantalla del sprint**, es una herramienta de desarrollo.
+
+**Qué hace:** Server Component que llama `api.yo()` + `api.leads({stage,
+limit:15})`, y por cada lead trae en paralelo sus citas
+(`api.citasDelLead()`) y su propiedad (`api.listing()`) — ninguna operación
+nueva en `lib/homelitics-nucleo.ts`, todas ya existían (se habían agregado
+para `/api/mocktest` pero no se usaban desde ninguna pantalla). Por cada
+lead arma directo los links a 2.1 y 2.4 (con el id ya puesto), y por cada
+cita los links a 2.3 y 2.5. Marca visualmente si el lead es del agente demo
+("tu lead", nace `CONFIRMED` al agendar) o de otro agente de la agencia
+("de otro agente", debería nacer `PENDING_CONFIRMATION`) — bloqueo 5. Chips
+de filtro por `stage` en la URL (`?stage=LOST`, etc.), útil justo para el
+caso de abajo. Primer intento resolvía la dirección con un `GET /listings`
+de 50 en bloque y buscaba por `listing_id` en memoria — la muestra no
+alcanzaba a cubrir los leads reales de la agencia (todos salían "propiedad
+fuera de esta muestra"), así que se cambió a un `GET /listings/{id}` por
+lead en paralelo con las citas: más llamadas, pero siempre exacto.
+
+**Con la herramienta, se encontraron de una 11 leads reales en `LOST`** (y
+uno en `WON`) filtrando `?stage=LOST` — el dato que faltaba para el único
+caso sin probar en vivo de todo el sprint. Se intentó pedir una visita sobre
+el lead `c6f19fdc-7a17-4c7a-a364-169626a45f34` (`LOST`, listing
+`ee6081ac-2dd0-422e-a66b-f2eaeb93f78c`): el `POST` dio 409 con
+`{"detail": "Lead is LOST; a closed lead takes no visits"}` y la pantalla
+mostró "Esta conversación ya se cerró, así que no se pueden pedir más
+visitas sobre ella." — sin botón de reintentar, como se diseñó. **Con esto,
+los tres tipos de 409 de crear una cita y el bloqueo 5 quedan verificados en
+vivo, sin ningún caso pendiente.**
+
+No se escribió nada nuevo en la base real en esta sesión: el intento sobre
+el lead `LOST` nunca llega a crear una fila (el 409 pasa antes), y explorar
+leads/listings es de solo lectura.
+
+**Archivos:** `app/dev/explorar/page.tsx` (nuevo). `README.md` menciona la
+herramienta como la forma recomendada de conseguir ids reales, en vez de
+`curl` a mano. `npx tsc --noEmit` y `npx eslint`: limpios.

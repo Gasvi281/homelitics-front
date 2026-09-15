@@ -110,25 +110,34 @@ un ambiente de prueba aislado.
    puede tardar 30-60s (el servicio duerme sin tráfico); si da timeout,
    reintenta.
 
-3. **Encuentra ids reales para probar.** El front no tiene ninguna pantalla
-   que liste leads o propiedades (las cinco pantallas del sprint siempre
-   reciben un id ya conocido, por link — ver `docs/SPRINT_LINEA2.md`), así
-   que hay que buscarlos aparte. La forma más simple es pedirle al **mismo
-   proxy que usa la app** (agrega la credencial automáticamente, no hace
-   falta ningún token a mano):
-   ```bash
-   # Propiedades de la agencia, más nuevas primero
-   curl http://localhost:3000/api/homelitics/listings
+3. **Encuentra leads reales y entra directo a cada pantalla desde el
+   navegador — sin ningún `curl`.** El front no tiene ninguna pantalla que
+   liste leads o propiedades (las cinco pantallas del sprint siempre reciben
+   un id ya conocido, por link — ver `docs/SPRINT_LINEA2.md`), así que se
+   agregó una: **`http://localhost:3000/dev/explorar`**. No es una sexta
+   pantalla del sprint, es una herramienta de desarrollo. Lista hasta 15
+   leads de la agencia (más recientes primero, o filtrados por etapa con los
+   chips de arriba — `?stage=LOST`, por ejemplo), y por cada uno ya trae
+   listo:
+   - si es un lead **tuyo** (del agente demo) o **de otro agente** — importa,
+     ver el punto 4;
+   - la dirección de la propiedad y un link directo a **2.1** y **2.4** con
+     el id ya puesto;
+   - sus citas existentes, cada una con link directo a **2.3** y **2.5**.
 
-   # Leads de la agencia. Filtra por el agent_id de /me (paso 2) para
-   # encontrar leads que SÍ son del agente demo — importa, ver el punto 4.
+   Para el caso puntual del punto 6 (lead en etapa terminal), filtra
+   `?stage=LOST` o `?stage=WON` ahí mismo.
+
+   Si preferís la línea de comandos, el mismo dato sale pegándole al
+   **mismo proxy que usa la app** (agrega la credencial automáticamente, no
+   hace falta ningún token a mano):
+   ```bash
+   curl http://localhost:3000/api/homelitics/listings
    curl "http://localhost:3000/api/homelitics/leads?agent_id=<id-de-/me>&stage=INTERESTED&limit=5"
    ```
    Filtros disponibles en `GET /leads`: `stage`, `agent_id`, `listing_id`,
-   `limit`, `offset`. En `GET /listings`: `status`, `operation_type`,
-   `city`, `limit`, `offset` (`docs/API_CONTRACT.md` §3). Con el `id` de un
-   lead que te sirva, arma la URL de la pantalla que quieras probar (ver la
-   sección siguiente) usando su `listing_id`.
+   `limit`, `offset`. En `GET /listings`: `status`, `operation_type`, `city`,
+   `limit`, `offset` (`docs/API_CONTRACT.md` §3).
 
 4. **Ten presente el bloqueo 5 al elegir un lead para 2.2.** El estado con
    el que nace una cita depende de quién hace el `POST` — si el lead es de
@@ -148,10 +157,10 @@ un ambiente de prueba aislado.
    `CANCELLED`/`COMPLETED`/`NO_SHOW`).
 
 6. **El 409 de "lead en etapa terminal" necesita un lead `WON` o `LOST`.**
-   Es el único de los tres 409 de crear una cita que no se probó en vivo
-   todavía (ver `docs/PROGRESO.md`, entrada del 2026-09-14/15) — hace falta
-   filtrar `GET /leads?stage=LOST` (o `WON`) para encontrar uno con un
-   horario libre a mano.
+   En `/dev/explorar`, filtra `?stage=LOST` (o `WON`) para encontrarlo —
+   suele haber varios en la agencia. Los tres tipos de 409 de crear una cita
+   ya quedaron verificados en vivo (`docs/PROGRESO.md`, entrada del
+   2026-09-15).
 
 7. **Todo lo que escribas es real.** No hay ambiente aislado de pruebas:
    crear/mover/cancelar una cita, agregar una nota o enviar una encuesta
@@ -229,13 +238,16 @@ estado sin nada.
   bloqueo 2, ver `docs/SPRINT_LINEA2.md`) y abre el formulario.
 - `APPOINTMENT_ID_COMPLETADA`: abre el formulario directo.
 
-### Endpoint de humo: `/api/mocktest`
+### Dos herramientas de desarrollo, ninguna de las dos es una pantalla del sprint
 
-`GET /api/mocktest` (solo tiene sentido con `USE_MOCKS=true`) llama a varias
-operaciones de `lib/homelitics.ts` de una sola vez y devuelve un JSON con
-éxito/error de cada una — útil para confirmar rápido que los mocks siguen
-respondiendo lo esperado después de tocar `lib/schemas.ts` o
-`lib/mock/index.ts`, sin pasar por ninguna pantalla.
+- **`/dev/explorar`** — lista leads reales (filtrables por etapa) con links
+  ya armados a cada una de las cinco pantallas. Pensada para `USE_MOCKS=false`;
+  ver "Probar contra el API real" arriba.
+- **`GET /api/mocktest`** (solo tiene sentido con `USE_MOCKS=true`) llama a
+  varias operaciones de `lib/homelitics.ts` de una sola vez y devuelve un
+  JSON con éxito/error de cada una — útil para confirmar rápido que los
+  mocks siguen respondiendo lo esperado después de tocar `lib/schemas.ts` o
+  `lib/mock/index.ts`, sin pasar por ninguna pantalla.
 
 ### Un quirk del dev server, para que no sorprenda
 
