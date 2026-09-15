@@ -22,7 +22,7 @@ const ESTILO_ESTADO: Record<AppointmentStatus, string> = {
 
 /** Exportado: components/HistorialLead.tsx y app/(agente)/leads/[leadId]/page.tsx (tarea 2.4) lo reusan. */
 export const ETIQUETA_CANAL: Record<Channel, string> = {
-  WHATSAPP: "WhatsApp",
+  TELEGRAM: "Telegram",
   IN_APP: "la app",
   CALL: "una llamada",
 };

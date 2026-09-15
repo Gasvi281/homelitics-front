@@ -91,13 +91,13 @@ const listing: Listing = {
   bathrooms: 1,
 };
 
-/** Laura Restrepo. Primer contacto el 1 de septiembre por WhatsApp. */
+/** Laura Restrepo. Primer contacto el 1 de septiembre por Telegram. */
 const lead: Lead = {
   id: LEAD_ID,
   client_id: CLIENT_ID,
   listing_id: LISTING_ID,
   agent_id: AGENT_ID,
-  source_channel: "WHATSAPP",
+  source_channel: "TELEGRAM",
   current_stage: "VISIT_SCHEDULED",
   created_at: "2026-09-01T14:05:00Z",
   updated_at: "2026-09-08T16:00:00Z",
@@ -186,7 +186,7 @@ let interacciones: Interaction[] = [
     id: uuid(13),
     lead_id: LEAD_ID,
     direction: "INBOUND",
-    channel: "WHATSAPP",
+    channel: "TELEGRAM",
     type: "MESSAGE",
     body: "Hola, vi el apartamento de Manila en el portal, ¿todavía está disponible?",
     occurred_at: "2026-09-01T14:05:00Z",
@@ -196,7 +196,7 @@ let interacciones: Interaction[] = [
     id: uuid(14),
     lead_id: LEAD_ID,
     direction: "OUTBOUND",
-    channel: "WHATSAPP",
+    channel: "TELEGRAM",
     type: "MESSAGE",
     body: "Hola Laura, sí, sigue disponible. ¿Quieres que agendemos una visita?",
     occurred_at: "2026-09-01T14:22:00Z",

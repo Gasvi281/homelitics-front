@@ -786,3 +786,27 @@ leads/listings es de solo lectura.
 **Archivos:** `app/dev/explorar/page.tsx` (nuevo). `README.md` menciona la
 herramienta como la forma recomendada de conseguir ids reales, en vez de
 `curl` a mano. `npx tsc --noEmit` y `npx eslint`: limpios.
+
+## 2026-09-15 — Bug: el API renombró el canal `WHATSAPP` a `TELEGRAM`
+
+**Síntoma:** `/dev/explorar?stage=INTERESTED` (y cualquier pantalla que lea
+leads o interacciones) caía en "El API devolvió una forma inesperada en
+/leads...: Invalid option: expected one of WHATSAPP|IN_APP|CALL" sobre
+`source_channel`. **Causa:** el API cambió el enum de canal a
+`TELEGRAM|IN_APP|CALL` — confirmado contra `/openapi.json` (`LeadOut`,
+`LeadCreate`, `InteractionOut`, `InteractionCreate`) y contra `GET /leads`
+real (9 de 15 leads `INTERESTED` venían en `TELEGRAM`). Es un renombre, no
+un valor agregado: `WHATSAPP` ya no existe en el esquema. zod hizo lo que
+tenía que hacer (fallar en un solo punto).
+
+**Hecho:** `Channel` en `lib/schemas.ts`, `ETIQUETA_CANAL` en
+`components/TarjetaCita.tsx` (`TELEGRAM: "Telegram"`), los tres valores del
+mock (`lib/mock/index.ts`, más su narrativa y la de `lib/mock/README.md`) y
+las cuatro menciones de `docs/API_CONTRACT.md`, con nota fechada en la tabla
+de enumeraciones. Verificado en el navegador contra el API real: los siete
+filtros de `/dev/explorar` cargan sin error y el historial 2.4 de un lead
+`TELEGRAM` (`33206870-...`) muestra "Telegram". `tsc` y `eslint`: limpios.
+
+**Pendiente:** avisar a L3 (bot de Telegram) y a L1 de que el front ya usa
+`TELEGRAM`; si el API vuelve a cambiar el enum, el síntoma será el mismo
+mensaje de zod.

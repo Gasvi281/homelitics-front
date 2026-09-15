@@ -10,7 +10,7 @@ Datos base del prototipo, para que las capturas y la demo coincidan:
 - Propiedad: Manila 206, Medellín. Transversal 80A # 81-57 apto 206.
   83,80 m², 1 habitación, 1 baño, `asking_price: "650137717.29"`.
 - Agente: Hernando Carrillo, rol `TEAM_ADMIN`.
-- Cliente: Laura Restrepo. Primer contacto el 1 de septiembre por WhatsApp.
+- Cliente: Laura Restrepo. Primer contacto el 1 de septiembre por Telegram.
 - Lead en etapa `VISIT_SCHEDULED`.
 - Cita el jueves 17 a las 10:30 de Bogotá, o sea `2026-09-17T15:30:00Z`.
 - Horarios ocupados de ejemplo, en hora de Bogotá:

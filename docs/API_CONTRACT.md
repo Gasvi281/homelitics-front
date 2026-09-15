@@ -122,7 +122,7 @@ Forma exacta de un lead, confirmada contra `/openapi.json` el 2026-09-10 (no
 tenía ejemplo en este documento antes de esa fecha):
 ```json
 { "id":"uuid", "client_id":"uuid", "listing_id":"uuid", "agent_id":"uuid",
-  "source_channel":"WHATSAPP", "current_stage":"VISIT_SCHEDULED",
+  "source_channel":"TELEGRAM", "current_stage":"VISIT_SCHEDULED",
   "created_at":"...", "updated_at":"..." }
 ```
 Son estos 8 campos, nada más.
@@ -130,7 +130,7 @@ Son estos 8 campos, nada más.
 ### `GET /leads/{lead_id}` · `GET /leads/at-risk?hours=&limit=`
 
 ### `POST /leads` — crear o devolver
-`{"client_id","listing_id","source_channel":"WHATSAPP|IN_APP|CALL","message":"..."}`
+`{"client_id","listing_id","source_channel":"TELEGRAM|IN_APP|CALL","message":"..."}`
 - **201** nuevo. **200** ya existía, devuelve el mismo lead (el par
   `(client_id, listing_id)` es una sola conversación).
 - **404** el listing no es de tu agencia o el cliente no existe.
@@ -250,7 +250,7 @@ Del más viejo al más nuevo.
 
 ### `POST /leads/{lead_id}/interactions`
 ```json
-{ "direction":"INBOUND|OUTBOUND", "channel":"WHATSAPP|IN_APP|CALL",
+{ "direction":"INBOUND|OUTBOUND", "channel":"TELEGRAM|IN_APP|CALL",
   "type":"MESSAGE|CALL|NOTE|STATUS_CHANGE", "body":"<=4000 chars",
   "occurred_at":"opcional, para retrofechar" }
 ```
@@ -358,7 +358,7 @@ el `POST`, en vez de esperar el error.
 | Conjunto | Valores |
 |---|---|
 | Etapa del lead | `INTERESTED`, `VISIT_SCHEDULED`, `VISITED`, `NEGOTIATING`, `WON`, `LOST` |
-| Canal | `WHATSAPP`, `IN_APP`, `CALL` |
+| Canal | `TELEGRAM`, `IN_APP`, `CALL` — antes `WHATSAPP` en vez de `TELEGRAM`; el API lo renombró, confirmado contra `/openapi.json` (`LeadOut`, `LeadCreate`, `InteractionOut`, `InteractionCreate`) y contra `GET /leads` real el 2026-09-15. `WHATSAPP` ya no existe. |
 | Dirección de interacción | `INBOUND`, `OUTBOUND` |
 | Tipo de interacción | `MESSAGE`, `CALL`, `NOTE`, `STATUS_CHANGE` |
 | Estado de cita | `PENDING_CONFIRMATION`, `CONFIRMED`, `RESCHEDULED`, `CANCELLED`, `COMPLETED`, `NO_SHOW` |

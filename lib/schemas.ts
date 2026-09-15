@@ -14,7 +14,7 @@ import { z } from "zod";
 export const Stage = z.enum([
   "INTERESTED", "VISIT_SCHEDULED", "VISITED", "NEGOTIATING", "WON", "LOST",
 ]);
-export const Channel = z.enum(["WHATSAPP", "IN_APP", "CALL"]);
+export const Channel = z.enum(["TELEGRAM", "IN_APP", "CALL"]);
 export const Direction = z.enum(["INBOUND", "OUTBOUND"]);
 export const InteractionType = z.enum(["MESSAGE", "CALL", "NOTE", "STATUS_CHANGE"]);
 export const AppointmentStatus = z.enum([
