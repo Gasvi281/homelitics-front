@@ -68,7 +68,7 @@ Agregado el 2026-09-27. Todo lo del API que usan estas tareas está en
 | # | Tarea | HU | Criterio de "done" |
 |---|---|---|---|
 | 2.7 | Esquemas y cliente: `LeadCardSchema`, `TransitionSchema` y los códigos de `lost_reason` en `lib/schemas.ts`; `api.tablero(filtros)`, `api.moverLead(id, body)` y `api.transiciones(id)` en `lib/homelitics-nucleo.ts`; mocks en `lib/mock/` validados contra esos esquemas | HU-06, HU-09 | Los mocks pasan por zod; un 409 y un 422 de `transitions` llegan a la pantalla como `HomeliticsError` con `kind` propio, sin códigos HTTP; el 422 se entiende en sus dos formas (simple y array de Pydantic) |
-| 2.8 | Tablero de solo lectura: ruta `(agente)/leads`, una columna por etapa abierta, tarjetas de `GET /leads?active=true` | HU-06 AC1 | Cada tarjeta muestra nombre del cliente, propiedad (dirección y barrio) y la última interacción con su fecha en hora de Bogotá; si falta un dato nullable, lo dice en vez de inventarlo; tarjeta enlaza a `/leads/{id}` (2.4) |
+| 2.8 | Tablero de solo lectura: ruta `(agente)/tablero`, una columna por etapa abierta, tarjetas de `GET /leads?active=true` | HU-06 AC1 | Cada tarjeta muestra nombre del cliente, propiedad (dirección y barrio) y la última interacción con su fecha en hora de Bogotá; si falta un dato nullable, lo dice en vez de inventarlo; tarjeta enlaza a `/leads/{id}` (2.4) |
 | 2.9 | Filtros en la URL: propiedad, rango de fecha de creación y etapa, leídos por la página (Server Component) y mandados a `GET /leads` | HU-06 AC3 | Un enlace con filtros abre el tablero ya filtrado; recargar no los pierde; `created_from > created_to` se frena en el formulario y nunca llega al API |
 | 2.10 | Mover etapa con drag & drop y actualización optimista contra `POST /leads/{id}/transitions` | HU-06 AC2 | Solo se puede soltar en columnas que son saltos legales; la tarjeta se mueve al instante; un 409 la devuelve a su columna con un mensaje y relee el tablero; tras recargar, el tablero refleja también las etapas que movió el calendario solo; hay una forma de mover sin arrastrar (menú "Mover a…") para teclado y pantallas táctiles |
 | 2.11 | Marcar como perdido: soltar en "Perdido" o elegir "Marcar como perdido" abre un diálogo con los seis motivos y una nota libre (máx. 2000) | HU-09 AC1 | No se puede enviar sin motivo; el diálogo avisa antes de confirmar que es definitivo y que cancela las visitas abiertas del lead; al confirmar, `to_stage: "LOST"` con `lost_reason` y `note` |
@@ -80,11 +80,16 @@ front solo lo consume en HU-17.
 
 ### Arquitectura
 
-- **`app/(agente)/leads/page.tsx` es Server Component.** Lee los filtros de
+- **`app/(agente)/tablero/page.tsx` es Server Component** (la ruta era
+  `(agente)/leads`; quedó en `/tablero` para no chocar con el detalle
+  `/leads/{id}`). Lee los filtros de
   `searchParams`, precarga `GET /leads` con un `QueryClient` de servidor
   (`prefetchQuery` sobre `api` de `lib/homelitics.ts`) y entrega el caché con
   `dehydrate` + `<HydrationBoundary>`. El primer render llega con datos, sin
-  cascada de carga en el navegador.
+  cascada de carga en el navegador. `app/providers.tsx` pone `staleTime` de
+  30 s por defecto para que lo hidratado no se vuelva a pedir al montar. El
+  código vive en `features/tablero-leads/`: `claves.ts` (filtros de la URL y
+  query keys, compartido servidor/navegador), `hooks.ts` y `components/`.
 - **Un Client Component (`components/Tablero.tsx` o similar) con el estado
   interactivo.** Usa `useQuery` con la **misma query key** que la página
   (incluye los filtros) y `api` de `lib/homelitics-navegador.ts`, nunca el de

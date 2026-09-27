@@ -890,3 +890,39 @@ Pendiente: `crearCitaMock` no da el 409 "takes no visits" para leads
 terminales, y `actualizarCitaMock` no replica el `_sync_funnel` del
 calendario (cita `CONFIRMED`/`COMPLETED` que adelanta la etapa). Faltan las
 pantallas del tablero.
+
+## 2026-09-27 — Tablero de leads de solo lectura con filtros (2.8 + 2.9)
+
+Hecho: ruta `app/(agente)/tablero/` (Server Component + `loading.tsx`). La
+página lee `?etapa=&propiedad=&desde=&hasta=`, precarga `GET /leads`
+(`active=true`, `limit=200`) y `GET /listings` con un `QueryClient` nuevo por
+request y entrega el caché con `HydrationBoundary`. Código en
+`features/tablero-leads/`: `claves.ts` (normaliza los filtros de la URL,
+`claveLeadsTablero`, `clavePropiedades`, `aFiltrosApi`), `hooks.ts`
+(`useLeadsTablero`, `usePropiedades`, con `lib/homelitics-navegador.ts`) y
+`components/` (`FiltrosTablero`, `TableroLeads`, `TarjetaLead`).
+`lib/format.ts` suma `tiempoRelativo`. `app/providers.tsx` pone `staleTime`
+30 s por defecto. El layout de (agente) tiene una barra con enlace al tablero.
+
+Decidido: la ruta es `/tablero` y no `/leads` como decía el sprint (doc
+corregido). Los filtros llegan al tablero como prop desde `searchParams`, no
+desde `useSearchParams`: la key del cliente es exactamente la del servidor y
+cambiar un filtro no dispara una petición del navegador además de la del
+servidor. El selector de propiedad agrupa listings por `property_id`. Una
+etapa terminal o una fecha mal formada en la URL se descartan; un rango al
+revés en la URL muestra un aviso y no se pide. El formulario usa `noValidate`:
+con `min`/`max` en las fechas el navegador frenaba el envío con su propio globo
+en vez del mensaje en español. El "hace N" de la tarjeta lleva
+`suppressHydrationWarning` y la fecha exacta en Bogotá en el `title`.
+
+Verificado con `USE_MOCKS=true` (cambiado a mano en `.env.local` y
+restaurado): `tsc` y `eslint` limpios; cuatro columnas con los 10 leads
+abiertos del mock; filtro de propiedad doble (4 tarjetas, SALE y RENT) sin
+recargar la página; etapa + fechas; rango al revés frenado en el formulario y
+en la URL; en móvil las columnas hacen scroll horizontal sin desbordar la
+página; sin errores de consola. Con mocks el navegador no hace peticiones de
+red, así que "la hidratación no vuelve a pedir" no se pudo comprobar mirando
+la red; queda por mirar contra el API real.
+
+Pendiente: 2.10 (drag & drop + "Mover a…"), 2.11 (perdido), 2.12 (cerrados).
+Paginación si una agencia pasa de 200 leads abiertos (hoy solo avisa).

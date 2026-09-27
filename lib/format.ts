@@ -1,4 +1,4 @@
-import { addDays } from "date-fns";
+import { addDays, formatDistanceStrict } from "date-fns";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { es } from "date-fns/locale";
 
@@ -26,6 +26,14 @@ export function horaLocal(iso: string): string {
 /** "2026-09-17T15:30:00Z" -> "jueves 17 de septiembre, 10:30" */
 export function fechaHoraLarga(iso: string): string {
   return formatInTimeZone(iso, TZ, "EEEE d 'de' MMMM, HH:mm", { locale: es });
+}
+
+/**
+ * "2026-09-17T15:30:00Z" -> "hace 3 horas". Una distancia no depende de la
+ * zona horaria; si hace falta la fecha exacta, `fechaHoraLarga` (Bogotá).
+ */
+export function tiempoRelativo(iso: string, ahora: Date = new Date()): string {
+  return formatDistanceStrict(new Date(iso), ahora, { addSuffix: true, locale: es });
 }
 
 /** Clave de día en Bogotá, para agrupar la grilla. "2026-09-17" */

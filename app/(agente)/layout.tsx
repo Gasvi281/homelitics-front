@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 /**
@@ -14,5 +15,17 @@ import type { ReactNode } from "react";
  * adentro, que ya reciben la credencial a través de `lib/homelitics.ts`.
  */
 export default function AgenteLayout({ children }: { children: ReactNode }) {
-  return <div className="min-h-screen bg-white">{children}</div>;
+  return (
+    <div className="min-h-screen bg-white">
+      <header className="border-b border-neutral-200">
+        <nav className="mx-auto flex max-w-7xl items-center gap-6 px-4 py-3 text-sm">
+          <span className="font-semibold text-neutral-900">Homelitics</span>
+          <Link href="/tablero" className="text-neutral-600 hover:text-neutral-900">
+            Tablero de leads
+          </Link>
+        </nav>
+      </header>
+      {children}
+    </div>
+  );
 }
