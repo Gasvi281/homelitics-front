@@ -45,8 +45,14 @@ local**. No lo uses.
   `{"detail":[{"loc":[...],"msg":"...","type":"..."}]}` en los 422. Confirmado
   contra `/openapi.json` el 2026-09-10: el array de Pydantic es solo para
   errores de validación de forma (falta un campo, tipo equivocado). Los 422 de
-  regla de negocio — `scheduled_at` en el pasado, objeción desconocida, `LOST`
-  sin razón — usan el `{"detail": "mensaje"}` simple, igual que los 409.
+  regla de negocio — `scheduled_at` en el pasado, objeción desconocida — usan
+  el `{"detail": "mensaje"}` simple, igual que los 409.
+  **Corrección 2026-09-27:** `LOST` sin razón **no** es de los simples. Leyendo
+  `app/schemas.py` del API, esa regla vive en un `model_validator` de
+  `TransitionCreate`, así que sale con el **array de Pydantic**, aunque
+  `/openapi.json` anuncie `Message` para ese 422. Ver
+  `POST /leads/{lead_id}/transitions`. El front tiene que aceptar las dos
+  formas en cualquier 422.
 - **`current_stage` es caché de solo lectura.** Se mueve con transiciones.
 - El servicio duerme a los 15 minutos sin tráfico; la primera petición tarda de
   30 a 60 segundos. Hay que preverlo en la UI.
@@ -114,18 +120,73 @@ chequeo de solapamiento; probado en `tests/test_availability.py`).
 - **422** si `from >= to`.
 - La grilla es de 30 minutos: pedir una cita de 60 consume dos casillas.
 
-### `GET /leads`
-Tablero de leads de la agencia, actividad más reciente primero.
-Filtros: `stage`, `agent_id`, `listing_id`, `limit`, `offset`.
+### `GET /leads` — **HU-06, tablero**
+Tablero de leads de la agencia, una tarjeta por lead, ordenado por
+`updated_at` descendente (actividad más reciente primero).
 
-Forma exacta de un lead, confirmada contra `/openapi.json` el 2026-09-10 (no
-tenía ejemplo en este documento antes de esa fecha):
+**Corrección 2026-09-27:** este documento decía que la respuesta eran los 8
+campos de `LeadOut` "nada más" y solo tres filtros. Ya no: confirmado contra
+`/openapi.json` y contra `app/routers/leads.py` / `app/services/lead.py` del
+API el 2026-09-27, la respuesta es `list[LeadCard]` y hay más filtros.
+
+Query params, todos opcionales:
+
+| Param | Tipo | Notas |
+|---|---|---|
+| `stage` | etapa del lead | etapa actual |
+| `agent_id` | uuid | agente dueño |
+| `listing_id` | uuid | una publicación |
+| `property_id` | uuid | el inmueble físico: **todas** sus publicaciones, `SALE` y `RENT` |
+| `client_id` | uuid | es como el bot encuentra los hilos de un cliente que vuelve |
+| `created_from` | fecha `YYYY-MM-DD` | día inclusivo, desde la medianoche local |
+| `created_to` | fecha `YYYY-MM-DD` | día inclusivo, hasta la medianoche local del día siguiente (exclusiva) |
+| `active` | bool, por defecto `false` | `true` oculta `WON` y `LOST` |
+| `limit` | 1–200, por defecto 50 | |
+| `offset` | ≥ 0, por defecto 0 | |
+
+- Los días de `created_from`/`created_to` se interpretan en `APP_TIMEZONE`
+  del API. `/openapi.json` solo dice "the agency's timezone"; el valor
+  `America/Bogota` sale de `app/config.py` (es el por defecto de esa
+  variable). Valor en producción asumido, no confirmado.
+- **422** si `created_from > created_to`, con `{"detail": "created_from is
+  after created_to"}` (forma simple). Un mismo día en los dos es válido.
+- `active=true` es el tablero de trabajo. Un lead `WON`/`LOST` sale de ahí
+  pero sigue consultable con `stage=WON` o `stage=LOST` (la descripción del
+  endpoint lo dice así). Qué pasa con `active=true` junto con `stage=WON` o
+  `stage=LOST` no está documentado: el front no los combina.
+
+Forma exacta de una tarjeta (`LeadCard`), confirmada contra `/openapi.json` el
+2026-09-27. Son los 8 campos de `LeadOut` más seis:
 ```json
 { "id":"uuid", "client_id":"uuid", "listing_id":"uuid", "agent_id":"uuid",
   "source_channel":"TELEGRAM", "current_stage":"VISIT_SCHEDULED",
-  "created_at":"...", "updated_at":"..." }
+  "created_at":"...", "updated_at":"...",
+  "client_name":"string|null",
+  "listing_address":"string|null",
+  "neighborhood":"string|null",
+  "operation_type":"SALE|RENT",
+  "asking_price":"650137717.29",
+  "last_interaction": { "occurred_at":"...", "direction":"INBOUND|OUTBOUND",
+                        "type":"MESSAGE|CALL|NOTE|STATUS_CHANGE",
+                        "body":"string|null" } | null }
 ```
-Son estos 8 campos, nada más.
+- Obligatorios: los 8 de `LeadOut`, `operation_type` y `asking_price`
+  (string, como todo el dinero).
+- **Nullable**: `client_name`, `listing_address`, `neighborhood` y
+  `last_interaction` completo. Dentro de `last_interaction`, `body` también es
+  nullable y no viene marcado obligatorio.
+- `last_interaction.body` es un **avance**, no el texto completo: el servicio
+  lo corta a 140 caracteres en SQL (`_PREVIEW_CHARS` en
+  `app/services/lead.py`). El texto completo está en
+  `GET /leads/{id}/interactions`.
+- `client_name` resuelve **para el tablero** el bloqueo 6 de
+  `docs/SPRINT_LINEA2.md`. `GET /leads/{id}` sigue devolviendo `LeadOut`
+  sin nombre.
+- La tarjeta no trae el nombre del agente ni la ciudad.
+
+`GET /leads/{id}`, `POST /leads` y `POST /leads/{id}/reassign` siguen
+devolviendo `LeadOut` (los 8 campos). No asumas que un `LeadOut` trae los
+campos de la tarjeta.
 
 ### `GET /leads/{lead_id}` · `GET /leads/at-risk?hours=&limit=`
 
@@ -283,26 +344,75 @@ trae también `agent_id` y `created_at`, ninguno documentado antes:
   "note":"...", "status":"PENDING", "created_at":"..." }
 ```
 
-### `GET /leads/{lead_id}/transitions`
+### `GET /leads/{lead_id}/transitions` — **HU-06, HU-09**
 **Existe.** Confirmado contra `/openapi.json` el 2026-09-10 — corrige la
 sección 6 de este documento, que decía lo contrario. Devuelve el log de
-transiciones completo, del más viejo al más nuevo:
+transiciones completo (`list[TransitionOut]`), del más viejo al más nuevo:
 ```json
 { "id":"uuid", "lead_id":"uuid", "from_stage":"INTERESTED|null",
   "to_stage":"VISIT_SCHEDULED", "changed_by":"uuid|null", "changed_at":"..." }
 ```
-Es la fuente de verdad; `lead.current_stage` es una caché sobre este log.
+Los seis campos son obligatorios; `from_stage` y `changed_by` pueden ser
+`null` (la primera fila del log no tiene etapa de origen). Es la fuente de
+verdad; `lead.current_stage` es una caché que mantiene un trigger de la base
+sobre este log. **El log no trae el motivo de pérdida** — ver abajo dónde
+queda.
 
-### `POST /leads/{lead_id}/transitions`
-`{"to_stage":"...","lost_reason":"...","note":"..."}`. `LOST` exige
-`lost_reason`. El `note` queda como interacción `STATUS_CHANGE`.
-- **409** salto ilegal o lead ya terminal. **422** `LOST` sin razón, o razón
-  desconocida.
+### `POST /leads/{lead_id}/transitions` — **HU-06, HU-09**
+Revisado contra `/openapi.json` y contra `app/schemas.py`,
+`app/routers/leads.py`, `app/services/lead.py` y `tests/test_transitions.py`
+del API el 2026-09-27.
 
-Saltos legales, confirmados contra `/openapi.json` el 2026-09-10 (no estaban
-documentados): `INTERESTED → VISIT_SCHEDULED → VISITED → NEGOTIATING → WON`,
-en ese orden estricto. Cualquier etapa no terminal puede saltar a `LOST`.
-`WON` y `LOST` son terminales.
+Body (`TransitionCreate`):
+```json
+{ "to_stage":"INTERESTED|VISIT_SCHEDULED|VISITED|NEGOTIATING|WON|LOST",
+  "lost_reason":"PRICE|LOCATION|BOUGHT_ELSEWHERE|NO_RESPONSE|FINANCING|OTHER|null",
+  "note":"<=2000 chars|null" }
+```
+Solo `to_stage` es obligatorio en el esquema. Respuesta: **201** con un
+`TransitionOut` (misma forma que el `GET` de arriba).
+
+Saltos legales, confirmados contra `/openapi.json` el 2026-09-10:
+`INTERESTED → VISIT_SCHEDULED → VISITED → NEGOTIATING → WON`, en ese orden
+estricto y solo hacia adelante: no se salta etapas ni se devuelve. Cualquier
+etapa no terminal puede saltar a `LOST`. `WON` y `LOST` son terminales.
+
+Errores:
+- **409** — salto ilegal (`"Illegal transition X -> Y. Allowed from X: [...]"`)
+  o lead ya terminal (`"Lead is already in terminal stage X and cannot be
+  moved"`). Forma simple `{"detail": "..."}`.
+- **422** — `LOST` sin `lost_reason`, **o `lost_reason` enviado con cualquier
+  otra etapa**. Esto último no lo dice `/openapi.json` ("LOST without a
+  lost_reason, or unknown reason"); sale del `model_validator` de
+  `TransitionCreate` y hay prueba (`test_lost_reason_is_only_valid_on_lost`).
+  Como es un validador de Pydantic, **el 422 llega con el array de Pydantic,
+  no con `{"detail": "mensaje"}`**, aunque `/openapi.json` diga `Message`. Lo
+  mismo para un código de razón desconocido (lo rechaza el `enum`). Regla
+  práctica: en una transición que no es `LOST`, omite `lost_reason` (o
+  mándalo en `null`); lo que da 422 es un valor no nulo.
+- **403** — solo cuentas de servicio (bots) sin el scope `leads:close` al
+  mover a `WON` o `LOST`. No aplica a este front: autentica como agente
+  humano (`lib/session.ts`).
+- **404** — lead de otra agencia o inexistente.
+
+Efectos colaterales que el front tiene que conocer:
+- **Mover a `LOST` siempre escribe una interacción** `STATUS_CHANGE`
+  (`OUTBOUND`, `IN_APP`) con cuerpo `"Lost: <CÓDIGO>"` o
+  `"Lost: <CÓDIGO> — <note>"`. Así el motivo queda legible en
+  `GET /leads/{id}/interactions` (HU-09 AC2). En las otras etapas la
+  interacción solo se escribe si hay `note`, con la nota como cuerpo.
+- El motivo y la nota de un `LOST` se guardan también en una tabla aparte
+  (`lead_lost_detail`) que ningún endpoint de lectura por lead expone. La
+  única lectura agregada es `GET /analytics/lost-reasons` (sección 7).
+- **Cerrar un lead (`WON` o `LOST`) cancela sus visitas abiertas** en la misma
+  transacción: el horario del agente se libera. La pantalla que lo cierre
+  debe avisarlo antes, no después.
+- Al revés, **el calendario también mueve etapas solo** (`_sync_funnel` en
+  `app/services/appointment.py`, leído el 2026-09-27), solo hacia adelante y
+  solo en dos casos: cita `CONFIRMED` con lead en `INTERESTED` →
+  `VISIT_SCHEDULED`; cita `COMPLETED` con lead en `VISIT_SCHEDULED` →
+  `VISITED`. Queda en el log como cualquier transición. No hay push: el
+  tablero se entera al releer `GET /leads`.
 
 ### `POST /appointments/{appointment_id}/feedback` — **tarea 2.5**
 ```json
@@ -365,6 +475,9 @@ el `POST`, en vez de esperar el error.
 | Recurso de otra agencia, o id inexistente | 404 | Pantalla de "no encontrado". Sospecha del token antes que del id. |
 | Cita ya cancelada o completada | 409 en `PATCH` | Deshabilitar las acciones y decir por qué. |
 | Fecha en el pasado | 422 | Validar antes de enviar, no confiar en el API. |
+| Salto de etapa ilegal, o lead ya terminal (otro lo movió mientras tanto) | 409 en `POST .../transitions` | Revertir la tarjeta a su columna (deshacer lo optimista), avisar y releer el tablero. |
+| `LOST` sin motivo | 422 en `POST .../transitions`, array de Pydantic | No debería pasar: el formulario exige el motivo antes de enviar. |
+| Rango de fechas al revés en el tablero | 422 en `GET /leads` | Validar el filtro antes de pedir; no llamar al API con `created_from > created_to`. |
 | Token vencido | 401 | Renovar en `lib/session.ts`, reintentar una vez. |
 
 ## 5. Enumeraciones
@@ -379,7 +492,7 @@ el `POST`, en vez de esperar el error.
 | Estado de tarea | `PENDING`, `DONE`, `SNOOZED` |
 | Operación | `SALE`, `RENT` |
 | Estado de listing | `ACTIVE`, `PAUSED`, `CLOSED` |
-| Razón de pérdida | `PRICE`, `LOCATION`, `BOUGHT_ELSEWHERE`, `NO_RESPONSE`, `FINANCING`, `OTHER` |
+| Razón de pérdida | `PRICE`, `LOCATION`, `BOUGHT_ELSEWHERE`, `NO_RESPONSE`, `FINANCING`, `OTHER` — confirmado contra `/openapi.json` (`TransitionCreate`, `LostReasonOut`) el 2026-09-27. No hay endpoint que dé las etiquetas: el texto en español lo pone el front. |
 | Objeción | `PRICE`, `SIZE`, `LOCATION`, `CONDITION`, `HOA_FEE`, `OTHER` |
 | Rol de agente | `AGENT`, `TEAM_ADMIN` |
 | Día de la semana | `0` lunes … `6` domingo |
@@ -393,6 +506,12 @@ el `POST`, en vez de esperar el error.
 - No hay websocket ni SSE. Para "tiempo real" se relee cada 5 segundos.
 - No hay forma documentada de resolver `objection_id` (la respuesta de
   `.../feedback`) a un texto legible. Ver esa sección.
+- No hay lectura del motivo de pérdida de **un** lead como campo. Se ve en la
+  interacción `STATUS_CHANGE` que deja el `LOST` (`"Lost: PRICE — nota"`), o
+  agregado en `/analytics/lost-reasons`.
+- No hay `GET /properties`: el filtro `property_id` de `GET /leads` existe,
+  pero la lista de inmuebles para elegir hay que armarla desde
+  `GET /listings` (cada listing trae su `property_id`).
 
 **Corrección 2026-09-10:** este documento decía que no había endpoint para leer
 el historial de transiciones. Es falso — `GET /leads/{lead_id}/transitions`
@@ -414,3 +533,9 @@ necesita hoy. Se listan para no reinventarlos si hiciera falta:
 - `GET /analytics/funnel-daily`, `/analytics/agent-response-time`,
   `/analytics/listing-performance`, `/analytics/north-star` — métricas de
   agencia, no hay pantalla de línea 2 que las pida.
+- `GET /analytics/lost-reasons?days=` — HU-09 AC3. Leads perdidos en la
+  ventana (`days` 1–730, por defecto 90, sobre la fecha de pérdida),
+  agrupados por motivo, más común primero:
+  `[{"reason":"PRICE","leads":12,"pct":40.0}, ...]` (`LostReasonOut`;
+  `pct` suma 100). Confirmado contra `/openapi.json` el 2026-09-27. Lo
+  consume HU-17, no HU-09.

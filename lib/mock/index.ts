@@ -24,6 +24,14 @@
  * | Cita ya cancelada (2.3: acciones deshabilitadas)  | `APPOINTMENT_ID_CANCELADA`|
  * | Visita confirmada pero no completada (2.5: 409)   | `APPOINTMENT_ID_NO_COMPLETADA` |
  * | Visita completada (2.5: la encuesta sí procede)   | `APPOINTMENT_ID_COMPLETADA` |
+ * | Tablero: lead en NEGOTIATING (puede ir a WON o LOST) | `LEAD_ID_NEGOCIANDO`   |
+ * | Tablero: lead ya WON (mover da 409)               | `LEAD_ID_GANADO`          |
+ * | Tablero: lead ya LOST, con su STATUS_CHANGE       | `LEAD_ID_PERDIDO`         |
+ * | Inmueble con dos publicaciones (filtro property_id)| `PROPERTY_ID_DOBLE`      |
+ *
+ * GET /leads devuelve 14 tarjetas repartidas en las seis etapas, y
+ * POST /leads/{id}/transitions aplica las reglas del API (409 y 422) y mueve
+ * `current_stage` en memoria.
  *
  * "Horario ocupado" (2.2) no necesita un id especial: alcanza con pedir dos
  * veces la misma cita para el mismo agente, o con pedir una de las casillas
@@ -33,10 +41,11 @@ import { addDays } from "date-fns";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { HomeliticsError } from "../errores";
 import { TZ } from "../format";
+import { EMBUDO, destinosLegales, esTerminal, puedeMover } from "../etapas";
 import {
-  TERMINAL_APPOINTMENT_STATUS,
+  LostReason, Stage, TERMINAL_APPOINTMENT_STATUS,
   type Agent, type Appointment, type AppointmentDetail, type Feedback,
-  type Interaction, type Lead, type Listing, type Task,
+  type Interaction, type Lead, type LeadCard, type Listing, type Task, type Transition,
 } from "../schemas";
 
 /* ---------- ids fijos, para que capturas y demo coincidan ---------- */
@@ -58,6 +67,17 @@ const APPOINTMENT_ID_CANCELADA = uuid(10);
 const APPOINTMENT_ID_NO_COMPLETADA = uuid(11);
 const APPOINTMENT_ID_COMPLETADA = uuid(12);
 
+/* Tablero (HU-06): más listings y leads repartidos en todas las etapas. */
+const LISTING_ID_LAURELES_VENTA = uuid(100);
+const LISTING_ID_LAURELES_ARRIENDO = uuid(101);
+const LISTING_ID_POBLADO = uuid(102);
+const LISTING_ID_ENVIGADO = uuid(103);
+/** Un inmueble con dos publicaciones (SALE y RENT): prueba el filtro `property_id`. */
+const PROPERTY_ID_DOBLE = uuid(110);
+const LEAD_ID_NEGOCIANDO = uuid(126);
+const LEAD_ID_GANADO = uuid(128);
+const LEAD_ID_PERDIDO = uuid(130);
+
 /** Contador para ids generados en POST (citas, interacciones, feedback nuevos). */
 let siguienteId = 1000;
 const nuevoId = () => uuid(siguienteId++);
@@ -73,52 +93,148 @@ const agente: Agent = {
   email: null,
 };
 
-/** Manila 206. Los mismos valores que el ejemplo de docs/API_CONTRACT.md. */
-const listing: Listing = {
-  id: LISTING_ID,
-  property_id: PROPERTY_ID,
-  agent_id: AGENT_ID,
-  operation_type: "SALE",
-  asking_price: "650137717.29",
-  status: "ACTIVE",
-  published_at: "2026-08-01T20:52:40.861578Z",
-  city: "Medellín",
-  neighborhood: "Manila",
-  address: "Transversal 80A # 81-57 Apto 206",
-  property_type: "APARTMENT",
-  area_m2: "83.80",
-  bedrooms: 1,
-  bathrooms: 1,
-};
+const listings: Listing[] = [
+  /** Manila 206. Los mismos valores que el ejemplo de docs/API_CONTRACT.md. */
+  {
+    id: LISTING_ID,
+    property_id: PROPERTY_ID,
+    agent_id: AGENT_ID,
+    operation_type: "SALE",
+    asking_price: "650137717.29",
+    status: "ACTIVE",
+    published_at: "2026-08-01T20:52:40.861578Z",
+    city: "Medellín",
+    neighborhood: "Manila",
+    address: "Transversal 80A # 81-57 Apto 206",
+    property_type: "APARTMENT",
+    area_m2: "83.80",
+    bedrooms: 1,
+    bathrooms: 1,
+  },
+  {
+    id: LISTING_ID_LAURELES_VENTA,
+    property_id: PROPERTY_ID_DOBLE,
+    agent_id: AGENT_ID,
+    operation_type: "SALE",
+    asking_price: "480000000.00",
+    status: "ACTIVE",
+    published_at: "2026-07-20T15:00:00Z",
+    city: "Medellín",
+    neighborhood: "Laureles",
+    address: "Circular 73B # 39-40 Casa 12",
+    property_type: "HOUSE",
+    area_m2: "142.00",
+    bedrooms: 3,
+    bathrooms: 2,
+  },
+  {
+    id: LISTING_ID_LAURELES_ARRIENDO,
+    property_id: PROPERTY_ID_DOBLE,
+    agent_id: AGENT_ID,
+    operation_type: "RENT",
+    asking_price: "3200000.00",
+    status: "ACTIVE",
+    published_at: "2026-07-20T15:05:00Z",
+    city: "Medellín",
+    neighborhood: "Laureles",
+    address: "Circular 73B # 39-40 Casa 12",
+    property_type: "HOUSE",
+    area_m2: "142.00",
+    bedrooms: 3,
+    bathrooms: 2,
+  },
+  {
+    id: LISTING_ID_POBLADO,
+    property_id: uuid(111),
+    agent_id: AGENT_ID,
+    operation_type: "SALE",
+    asking_price: "1250000000.00",
+    status: "ACTIVE",
+    published_at: "2026-07-02T13:30:00Z",
+    city: "Medellín",
+    neighborhood: "El Poblado",
+    address: "Carrera 43A # 9 Sur-91 Apto 1504",
+    property_type: "APARTMENT",
+    area_m2: "118.50",
+    bedrooms: 3,
+    bathrooms: 3,
+  },
+  /** Sin dirección ni ficha: el caso nullable del contrato. */
+  {
+    id: LISTING_ID_ENVIGADO,
+    property_id: uuid(112),
+    agent_id: AGENT_ID,
+    operation_type: "RENT",
+    asking_price: "2100000.00",
+    status: "ACTIVE",
+    published_at: "2026-08-05T18:00:00Z",
+    city: "Envigado",
+    neighborhood: "Zúñiga",
+    address: null,
+    property_type: null,
+    area_m2: null,
+    bedrooms: null,
+    bathrooms: null,
+  },
+];
 
-/** Laura Restrepo. Primer contacto el 1 de septiembre por Telegram. */
-const lead: Lead = {
-  id: LEAD_ID,
-  client_id: CLIENT_ID,
-  listing_id: LISTING_ID,
-  agent_id: AGENT_ID,
-  source_channel: "TELEGRAM",
-  current_stage: "VISIT_SCHEDULED",
-  created_at: "2026-09-01T14:05:00Z",
-  updated_at: "2026-09-08T16:00:00Z",
-};
+/** Un lead del mock guarda el nombre del cliente: el API lo resuelve al armar la tarjeta. */
+type LeadMock = Lead & { client_name: string | null };
 
-/** Lead recién creado, sin interacciones, tareas ni citas: el caso de lista vacía. */
-const leadVacio: Lead = {
-  id: LEAD_ID_VACIO,
-  client_id: CLIENT_ID_VACIO,
-  listing_id: LISTING_ID,
-  agent_id: AGENT_ID,
-  source_channel: "IN_APP",
-  current_stage: "INTERESTED",
-  created_at: "2026-09-09T20:00:00Z",
-  updated_at: "2026-09-09T20:00:00Z",
-};
+function leadMock(
+  id: string, clientId: string, clientName: string | null, listingId: string,
+  canal: Lead["source_channel"], etapa: Lead["current_stage"], creado: string, actualizado: string,
+): LeadMock {
+  return {
+    id, client_id: clientId, client_name: clientName, listing_id: listingId, agent_id: AGENT_ID,
+    source_channel: canal, current_stage: etapa, created_at: creado, updated_at: actualizado,
+  };
+}
 
-const leadsPorId: Record<string, Lead> = {
-  [LEAD_ID]: lead,
-  [LEAD_ID_VACIO]: leadVacio,
-};
+/**
+ * Todos del mismo agente para que /slots y las citas sigan funcionando. En
+ * memoria: POST /leads/{id}/transitions cambia `current_stage` aquí.
+ */
+let leads: LeadMock[] = [
+  /** Laura Restrepo. Primer contacto el 1 de septiembre por Telegram. */
+  leadMock(LEAD_ID, CLIENT_ID, "Laura Restrepo", LISTING_ID, "TELEGRAM", "VISIT_SCHEDULED",
+    "2026-09-01T14:05:00Z", "2026-09-08T16:00:00Z"),
+  /** Lead recién creado, sin interacciones, tareas ni citas: el caso de lista vacía. */
+  leadMock(LEAD_ID_VACIO, CLIENT_ID_VACIO, null, LISTING_ID, "IN_APP", "INTERESTED",
+    "2026-09-09T20:00:00Z", "2026-09-09T20:00:00Z"),
+  leadMock(uuid(120), uuid(140), "Camila Ortiz", LISTING_ID_LAURELES_VENTA, "TELEGRAM", "INTERESTED",
+    "2026-09-20T13:10:00Z", "2026-09-20T13:32:00Z"),
+  leadMock(uuid(121), uuid(141), "Juan Pablo Mejía", LISTING_ID_POBLADO, "CALL", "INTERESTED",
+    "2026-09-24T15:00:00Z", "2026-09-24T15:12:00Z"),
+  leadMock(uuid(122), uuid(142), "Sofía Zapata", LISTING_ID_LAURELES_ARRIENDO, "TELEGRAM", "VISIT_SCHEDULED",
+    "2026-09-10T16:40:00Z", "2026-09-22T14:00:00Z"),
+  leadMock(uuid(123), uuid(143), null, LISTING_ID_ENVIGADO, "IN_APP", "VISIT_SCHEDULED",
+    "2026-09-12T21:15:00Z", "2026-09-21T12:30:00Z"),
+  leadMock(uuid(124), uuid(144), "Mateo Arango", LISTING_ID_LAURELES_VENTA, "TELEGRAM", "VISITED",
+    "2026-08-25T17:00:00Z", "2026-09-18T19:45:00Z"),
+  leadMock(uuid(125), uuid(145), "Valentina Rojas", LISTING_ID, "CALL", "VISITED",
+    "2026-08-28T14:20:00Z", "2026-09-19T16:10:00Z"),
+  leadMock(LEAD_ID_NEGOCIANDO, uuid(146), "Daniel Henao", LISTING_ID_POBLADO, "TELEGRAM", "NEGOTIATING",
+    "2026-08-12T15:30:00Z", "2026-09-23T22:05:00Z"),
+  leadMock(uuid(127), uuid(147), "Isabella Cardona", LISTING_ID_LAURELES_ARRIENDO, "IN_APP", "NEGOTIATING",
+    "2026-08-18T13:00:00Z", "2026-09-15T18:20:00Z"),
+  leadMock(LEAD_ID_GANADO, uuid(148), "Santiago Posada", LISTING_ID_LAURELES_VENTA, "CALL", "WON",
+    "2026-08-03T16:00:00Z", "2026-09-05T20:00:00Z"),
+  leadMock(uuid(129), uuid(149), "Mariana Vélez", LISTING_ID_ENVIGADO, "TELEGRAM", "WON",
+    "2026-08-06T19:30:00Z", "2026-08-30T15:00:00Z"),
+  leadMock(LEAD_ID_PERDIDO, uuid(150), "Felipe Correa", LISTING_ID_POBLADO, "TELEGRAM", "LOST",
+    "2026-08-10T14:00:00Z", "2026-09-02T17:30:00Z"),
+  leadMock(uuid(131), uuid(151), null, LISTING_ID, "IN_APP", "LOST",
+    "2026-08-20T20:10:00Z", "2026-08-27T13:00:00Z"),
+];
+
+function buscarLead(id: string): LeadMock | undefined {
+  return leads.find(l => l.id === id);
+}
+
+function buscarListing(id: string): Listing | undefined {
+  return listings.find(l => l.id === id);
+}
 
 /**
  * Estados que descuentan un horario, confirmado por la línea 1 el 2026-09-03
@@ -212,7 +328,65 @@ let interacciones: Interaction[] = [
     occurred_at: "2026-09-08T16:00:00Z",
     created_by: AGENT_ID,
   },
+  // Tablero: la última de cada lead es su `last_interaction`.
+  mensaje(200, uuid(120), "INBOUND", "TELEGRAM", "Buenas, ¿la casa de Laureles tiene parqueadero?", "2026-09-20T13:10:00Z"),
+  mensaje(201, uuid(120), "OUTBOUND", "TELEGRAM", "Hola Camila, sí: tiene dos parqueaderos cubiertos.", "2026-09-20T13:32:00Z"),
+  mensaje(202, uuid(121), "INBOUND", "CALL", null, "2026-09-24T15:12:00Z", "CALL"),
+  mensaje(203, uuid(122), "INBOUND", "TELEGRAM", "Perfecto, nos vemos el sábado en la casa.", "2026-09-22T14:00:00Z"),
+  mensaje(204, uuid(123), "OUTBOUND", "IN_APP", "Llamar el viernes para confirmar la visita al de Zúñiga.", "2026-09-21T12:30:00Z", "NOTE"),
+  mensaje(205, uuid(124), "INBOUND", "TELEGRAM", "Me gustó mucho, pero quiero verla otra vez con mi esposa antes de decidir.", "2026-09-18T19:45:00Z"),
+  mensaje(206, uuid(125), "OUTBOUND", "CALL", null, "2026-09-19T16:10:00Z", "CALL"),
+  mensaje(207, LEAD_ID_NEGOCIANDO, "INBOUND", "TELEGRAM",
+    "Le ofrezco 1.180 millones si el propietario deja los muebles de la cocina y entregan antes de diciembre. Es mi última oferta, díganme esta semana por favor.",
+    "2026-09-23T22:05:00Z"),
+  mensaje(208, uuid(127), "OUTBOUND", "IN_APP", "El propietario acepta el canon si firman a un año.", "2026-09-15T18:20:00Z"),
+  mensaje(209, LEAD_ID_GANADO, "INBOUND", "CALL", "Ya firmamos la promesa, ¡gracias!", "2026-09-05T20:00:00Z"),
+  mensaje(210, uuid(129), "OUTBOUND", "TELEGRAM", "Bienvenida al apartamento, Mariana.", "2026-08-30T15:00:00Z"),
+  mensaje(211, LEAD_ID_PERDIDO, "INBOUND", "TELEGRAM", "Encontré algo parecido en Envigado por menos plata.", "2026-09-02T17:00:00Z"),
+  // Lo que escribe el API al pasar a LOST (docs/API_CONTRACT.md, POST .../transitions).
+  mensaje(212, LEAD_ID_PERDIDO, "OUTBOUND", "IN_APP", "Lost: PRICE — Consiguió uno más barato en Envigado", "2026-09-02T17:30:00Z", "STATUS_CHANGE"),
+  mensaje(213, uuid(131), "OUTBOUND", "IN_APP", "Lost: NO_RESPONSE", "2026-08-27T13:00:00Z", "STATUS_CHANGE"),
 ];
+
+function mensaje(
+  n: number, leadId: string, direccion: Interaction["direction"], canal: Interaction["channel"],
+  cuerpo: string | null, cuando: string, tipo: Interaction["type"] = "MESSAGE",
+): Interaction {
+  return {
+    id: uuid(n), lead_id: leadId, direction: direccion, channel: canal, type: tipo,
+    body: cuerpo, occurred_at: cuando, created_by: direccion === "OUTBOUND" ? AGENT_ID : null,
+  };
+}
+
+/** Desde qué etapa se perdió cada lead LOST de la semilla. */
+const PERDIDO_DESDE: Record<string, Stage> = {
+  [LEAD_ID_PERDIDO]: "VISITED",
+  [uuid(131)]: "INTERESTED",
+};
+
+/**
+ * Log de transiciones semilla: el camino del embudo hasta la etapa actual,
+ * repartido entre `created_at` y `updated_at`. La primera fila no tiene
+ * etapa de origen, como en el API.
+ */
+function historialSemilla(l: LeadMock): Transition[] {
+  const hasta = l.current_stage === "LOST" ? PERDIDO_DESDE[l.id] ?? "INTERESTED" : l.current_stage;
+  const camino: Stage[] = EMBUDO.slice(0, EMBUDO.indexOf(hasta) + 1);
+  if (l.current_stage === "LOST") camino.push("LOST");
+
+  const inicio = new Date(l.created_at).getTime();
+  const fin = new Date(l.updated_at).getTime();
+  return camino.map((etapa, i) => ({
+    id: nuevoId(),
+    lead_id: l.id,
+    from_stage: i === 0 ? null : camino[i - 1],
+    to_stage: etapa,
+    changed_by: i === 0 ? null : AGENT_ID,
+    changed_at: new Date(camino.length === 1 ? inicio : inicio + ((fin - inicio) * i) / (camino.length - 1)).toISOString(),
+  }));
+}
+
+let transiciones: Transition[] = leads.flatMap(historialSemilla);
 
 const tareas: Task[] = [
   {
@@ -319,7 +493,7 @@ function formatoDiaISO(d: Date): string {
 /* ---------- handlers por recurso ---------- */
 
 function listingsMock(params: URLSearchParams): Listing[] {
-  let resultado = [listing];
+  let resultado = listings;
   const status = params.get("status");
   const operationType = params.get("operation_type");
   const city = params.get("city"); // coincidencia exacta, como documenta el contrato
@@ -330,25 +504,151 @@ function listingsMock(params: URLSearchParams): Listing[] {
 }
 
 function listingPorIdMock(id: string): Listing {
-  if (id !== LISTING_ID) noEncontrado("El listing no existe o es de otra agencia.");
-  return listing;
+  return buscarListing(id) ?? noEncontrado("El listing no existe o es de otra agencia.");
 }
 
-function leadsMock(params: URLSearchParams): Lead[] {
-  let resultado = Object.values(leadsPorId);
+/** El API corta el avance de `last_interaction.body` a 140 caracteres en SQL. */
+const AVANCE_CHARS = 140;
+
+/** Lo que devuelve GET /leads por cada lead: lead + listing + última interacción. */
+function aTarjeta(l: LeadMock): LeadCard {
+  const pub = buscarListing(l.listing_id)!;
+  const ultima = interacciones
+    .filter(i => i.lead_id === l.id)
+    .reduce<Interaction | null>((max, i) => (!max || i.occurred_at > max.occurred_at ? i : max), null);
+  return {
+    ...aLeadOut(l),
+    client_name: l.client_name,
+    listing_address: pub.address,
+    neighborhood: pub.neighborhood,
+    operation_type: pub.operation_type,
+    asking_price: pub.asking_price,
+    last_interaction: ultima && {
+      occurred_at: ultima.occurred_at,
+      direction: ultima.direction,
+      type: ultima.type,
+      body: ultima.body?.slice(0, AVANCE_CHARS) ?? null,
+    },
+  };
+}
+
+/** GET /leads/{id} sigue siendo `LeadOut`: los 8 campos, sin los de la tarjeta. */
+function aLeadOut(l: LeadMock): Lead {
+  return {
+    id: l.id, client_id: l.client_id, listing_id: l.listing_id, agent_id: l.agent_id,
+    source_channel: l.source_channel, current_stage: l.current_stage,
+    created_at: l.created_at, updated_at: l.updated_at,
+  };
+}
+
+/**
+ * Filtros de docs/API_CONTRACT.md §3. Los días de `created_from`/`created_to`
+ * son inclusivos y se leen en hora de Bogotá, como `APP_TIMEZONE` del API.
+ */
+function leadsMock(params: URLSearchParams): LeadCard[] {
+  const desde = params.get("created_from");
+  const hasta = params.get("created_to");
+  if (desde && hasta && desde > hasta) {
+    throw new HomeliticsError("invalido", "created_from is after created_to", 422);
+  }
+
+  let resultado = leads;
   const stage = params.get("stage");
   const agentId = params.get("agent_id");
   const listingId = params.get("listing_id");
+  const propertyId = params.get("property_id");
+  const clientId = params.get("client_id");
   if (stage) resultado = resultado.filter(l => l.current_stage === stage);
   if (agentId) resultado = resultado.filter(l => l.agent_id === agentId);
   if (listingId) resultado = resultado.filter(l => l.listing_id === listingId);
-  return resultado;
+  if (propertyId) resultado = resultado.filter(l => buscarListing(l.listing_id)?.property_id === propertyId);
+  if (clientId) resultado = resultado.filter(l => l.client_id === clientId);
+  if (params.get("active") === "true") resultado = resultado.filter(l => !esTerminal(l.current_stage));
+  if (desde) resultado = resultado.filter(l => diaBogotaStr(new Date(l.created_at)) >= desde);
+  if (hasta) resultado = resultado.filter(l => diaBogotaStr(new Date(l.created_at)) <= hasta);
+
+  const limit = Number(params.get("limit") ?? 50);
+  const offset = Number(params.get("offset") ?? 0);
+  return [...resultado]
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    .slice(offset, offset + limit)
+    .map(aTarjeta);
 }
 
 function leadPorIdMock(id: string): Lead {
-  const encontrado = leadsPorId[id];
-  if (!encontrado) noEncontrado("El lead no existe o es de otra agencia.");
-  return encontrado;
+  return aLeadOut(buscarLead(id) ?? noEncontrado("El lead no existe o es de otra agencia."));
+}
+
+function transicionesMock(leadId: string): Transition[] {
+  if (!buscarLead(leadId)) noEncontrado("El lead no existe o es de otra agencia.");
+  return transiciones
+    .filter(t => t.lead_id === leadId)
+    .sort((a, b) => a.changed_at.localeCompare(b.changed_at));
+}
+
+/**
+ * Mismas reglas que POST /leads/{id}/transitions del API, en el mismo orden:
+ * primero la validación del cuerpo (422, en el API la hace Pydantic), luego
+ * las reglas del embudo (409). Los mensajes imitan los del API.
+ */
+function moverLeadMock(leadId: string, cuerpo: Record<string, unknown> | undefined): Transition {
+  const leadActual = buscarLead(leadId) ?? noEncontrado("El lead no existe o es de otra agencia.");
+
+  const destino = Stage.safeParse(cuerpo?.to_stage);
+  if (!destino.success) throw new HomeliticsError("invalido", "to_stage: etapa desconocida", 422);
+  const motivoCrudo = cuerpo?.lost_reason ?? null;
+  const motivo = motivoCrudo === null ? null : LostReason.safeParse(motivoCrudo).data;
+  if (motivo === undefined) throw new HomeliticsError("invalido", "lost_reason: motivo desconocido", 422);
+  if (destino.data === "LOST" && motivo === null) {
+    throw new HomeliticsError("invalido", "Value error, lost_reason is required when moving to LOST", 422);
+  }
+  if (destino.data !== "LOST" && motivo !== null) {
+    throw new HomeliticsError("invalido", "Value error, lost_reason is only valid when moving to LOST", 422);
+  }
+  const nota = typeof cuerpo?.note === "string" && cuerpo.note ? cuerpo.note : null;
+
+  const desde = leadActual.current_stage;
+  if (esTerminal(desde)) {
+    throw new HomeliticsError("conflicto", `Lead is already in terminal stage ${desde} and cannot be moved`, 409);
+  }
+  if (!puedeMover(desde, destino.data)) {
+    throw new HomeliticsError(
+      "conflicto",
+      `Illegal transition ${desde} -> ${destino.data}. Allowed from ${desde}: [${destinosLegales(desde).join(", ")}]`,
+      409,
+    );
+  }
+
+  const ahora = new Date().toISOString();
+  const nueva: Transition = {
+    id: nuevoId(),
+    lead_id: leadId,
+    from_stage: desde,
+    to_stage: destino.data,
+    changed_by: AGENT_ID,
+    changed_at: ahora,
+  };
+  transiciones = [...transiciones, nueva];
+  leads = leads.map(l => (l.id === leadId ? { ...l, current_stage: destino.data, updated_at: ahora } : l));
+
+  // Efectos colaterales documentados en docs/API_CONTRACT.md: LOST siempre
+  // deja una interacción STATUS_CHANGE; las demás etapas solo si hay nota.
+  const cuerpoInteraccion = destino.data === "LOST"
+    ? `Lost: ${motivo}${nota ? ` — ${nota}` : ""}`
+    : nota;
+  if (cuerpoInteraccion) {
+    interacciones = [...interacciones, {
+      id: nuevoId(), lead_id: leadId, direction: "OUTBOUND", channel: "IN_APP",
+      type: "STATUS_CHANGE", body: cuerpoInteraccion, occurred_at: ahora, created_by: AGENT_ID,
+    }];
+  }
+  // Cerrar el lead cancela sus visitas abiertas y libera el horario del agente.
+  if (esTerminal(destino.data)) {
+    citas = citas.map(c =>
+      c.lead_id === leadId && BLOQUEA.has(c.status) ? { ...c, status: "CANCELLED" as const, updated_at: ahora } : c,
+    );
+  }
+  return nueva;
 }
 
 function slotsMock(
@@ -369,12 +669,12 @@ function slotsMock(
 }
 
 function citasDelLeadMock(leadId: string): Appointment[] {
-  if (!leadsPorId[leadId]) noEncontrado("El lead no existe o es de otra agencia.");
+  if (!buscarLead(leadId)) noEncontrado("El lead no existe o es de otra agencia.");
   return citas.filter(c => c.lead_id === leadId);
 }
 
 function crearCitaMock(leadId: string, cuerpo: Record<string, unknown> | undefined): Appointment {
-  const leadActual = leadsPorId[leadId];
+  const leadActual = buscarLead(leadId);
   if (!leadActual) noEncontrado("El lead no existe o es de otra agencia.");
 
   const scheduledAt = String(cuerpo?.scheduled_at ?? "");
@@ -413,15 +713,16 @@ function crearCitaMock(leadId: string, cuerpo: Record<string, unknown> | undefin
  * GET /appointments/{id} (a diferencia de `citasDelLeadMock`) trae más que la
  * cita: `location`, `agent_name` y `google_calendar_url` ya resueltos del
  * lado del API — ver `AppointmentDetailSchema` en lib/schemas.ts. El mock
- * solo tiene un listing y un agente, así que siempre usa esos.
+ * tiene un solo agente; el listing sale del lead de la cita.
  */
 function citaPorIdMock(id: string): AppointmentDetail {
   const encontrada = citas.find(c => c.id === id);
   if (!encontrada) noEncontrado("La cita no existe o es de otra agencia.");
+  const pub = buscarListing(buscarLead(encontrada.lead_id)!.listing_id)!;
   return {
     ...encontrada,
-    listing_id: listing.id,
-    location: `${listing.address}, ${listing.neighborhood}, ${listing.city}`,
+    listing_id: pub.id,
+    location: [pub.address, pub.neighborhood, pub.city].filter(Boolean).join(", "),
     agent_name: agente.full_name,
     google_calendar_url:
       `https://calendar.google.com/calendar/render?action=TEMPLATE&text=Visita+Homelitics`,
@@ -473,12 +774,12 @@ function actualizarCitaMock(id: string, cuerpo: Record<string, unknown> | undefi
 }
 
 function interaccionesDelLeadMock(leadId: string): Interaction[] {
-  if (!leadsPorId[leadId]) noEncontrado("El lead no existe o es de otra agencia.");
+  if (!buscarLead(leadId)) noEncontrado("El lead no existe o es de otra agencia.");
   return interacciones.filter(i => i.lead_id === leadId);
 }
 
 function crearInteraccionMock(leadId: string, cuerpo: Record<string, unknown> | undefined): Interaction {
-  if (!leadsPorId[leadId]) noEncontrado("El lead no existe o es de otra agencia.");
+  if (!buscarLead(leadId)) noEncontrado("El lead no existe o es de otra agencia.");
   const direccion = cuerpo?.direction === "OUTBOUND" ? "OUTBOUND" : "INBOUND";
   const nueva: Interaction = {
     id: nuevoId(),
@@ -495,7 +796,7 @@ function crearInteraccionMock(leadId: string, cuerpo: Record<string, unknown> | 
 }
 
 function tareasDelLeadMock(leadId: string): Task[] {
-  if (!leadsPorId[leadId]) noEncontrado("El lead no existe o es de otra agencia.");
+  if (!buscarLead(leadId)) noEncontrado("El lead no existe o es de otra agencia.");
   return tareas.filter(t => t.lead_id === leadId);
 }
 
@@ -565,6 +866,10 @@ export async function resolverMock(path: string, method: string = "GET", body?: 
     if (m === "GET") return citaPorIdMock(match[1]);
     if (m === "PATCH") return actualizarCitaMock(match[1], cuerpo);
   }
+  if ((match = pathname.match(/^\/leads\/([^/]+)\/transitions$/))) {
+    if (m === "GET") return transicionesMock(match[1]);
+    if (m === "POST") return moverLeadMock(match[1], cuerpo);
+  }
   if ((match = pathname.match(/^\/leads\/([^/]+)\/interactions$/))) {
     if (m === "GET") return interaccionesDelLeadMock(match[1]);
     if (m === "POST") return crearInteraccionMock(match[1], cuerpo);
@@ -583,4 +888,5 @@ export async function resolverMock(path: string, method: string = "GET", body?: 
 export const MOCK_IDS = {
   AGENT_ID, LISTING_ID, CLIENT_ID, LEAD_ID, LEAD_ID_VACIO,
   APPOINTMENT_ID, APPOINTMENT_ID_CANCELADA, APPOINTMENT_ID_NO_COMPLETADA, APPOINTMENT_ID_COMPLETADA,
+  LEAD_ID_NEGOCIANDO, LEAD_ID_GANADO, LEAD_ID_PERDIDO, PROPERTY_ID_DOBLE,
 };

@@ -1,16 +1,5 @@
 import type { Stage } from "@/lib/schemas";
-
-/** Orden estricto de saltos legales, docs/API_CONTRACT.md §3 (POST .../transitions). */
-const ETAPAS: Stage[] = ["INTERESTED", "VISIT_SCHEDULED", "VISITED", "NEGOTIATING", "WON"];
-
-const ETIQUETA_ETAPA: Record<Stage, string> = {
-  INTERESTED: "Interesado",
-  VISIT_SCHEDULED: "Visita agendada",
-  VISITED: "Visitó",
-  NEGOTIATING: "Negociando",
-  WON: "Ganado",
-  LOST: "Perdido",
-};
+import { EMBUDO, ETIQUETA_ETAPA } from "@/lib/etapas";
 
 /**
  * Embudo completo del lead (tarea 2.4), con la etapa actual marcada encima.
@@ -26,7 +15,7 @@ const ETIQUETA_ETAPA: Record<Stage, string> = {
  */
 export function EmbudoLead({ etapaActual }: { etapaActual: Stage }) {
   const perdido = etapaActual === "LOST";
-  const indiceActual = ETAPAS.indexOf(etapaActual);
+  const indiceActual = EMBUDO.indexOf(etapaActual);
 
   return (
     <div>
@@ -36,7 +25,7 @@ export function EmbudoLead({ etapaActual }: { etapaActual: Stage }) {
         </span>
       )}
       <ol className={`flex flex-col gap-3 sm:flex-row sm:items-center ${perdido ? "opacity-50" : ""}`}>
-        {ETAPAS.map((etapa, i) => {
+        {EMBUDO.map((etapa, i) => {
           const completada = !perdido && i < indiceActual;
           const actual = !perdido && i === indiceActual;
           return (
@@ -56,7 +45,7 @@ export function EmbudoLead({ etapaActual }: { etapaActual: Stage }) {
               <span className={`text-sm ${actual ? "font-semibold text-neutral-900" : "text-neutral-500"}`}>
                 {ETIQUETA_ETAPA[etapa]}
               </span>
-              {i < ETAPAS.length - 1 && (
+              {i < EMBUDO.length - 1 && (
                 <span className="hidden h-px flex-1 bg-neutral-200 sm:block" aria-hidden />
               )}
             </li>

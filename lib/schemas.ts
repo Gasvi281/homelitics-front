@@ -28,6 +28,14 @@ export const Objection = z.enum([
   "PRICE", "SIZE", "LOCATION", "CONDITION", "HOA_FEE", "OTHER",
 ]);
 export const SubmittedBy = z.enum(["AGENT", "CLIENT"]);
+/**
+ * Motivo de pérdida de un lead. Confirmado contra /openapi.json
+ * (`TransitionCreate`, `LostReasonOut`) el 2026-09-27. Las etiquetas en
+ * español viven en lib/etapas.ts: el API no las da.
+ */
+export const LostReason = z.enum([
+  "PRICE", "LOCATION", "BOUGHT_ELSEWHERE", "NO_RESPONSE", "FINANCING", "OTHER",
+]);
 
 /** Estados de los que ya no se sale. La UI deshabilita acciones sobre ellos. */
 export const TERMINAL_APPOINTMENT_STATUS = ["CANCELLED", "COMPLETED", "NO_SHOW"] as const;
@@ -106,6 +114,48 @@ export const LeadSchema = z.object({
   current_stage: Stage,
   created_at: instant,
   updated_at: instant,
+});
+
+/**
+ * `last_interaction` de una tarjeta del tablero. Confirmado contra
+ * /openapi.json el 2026-09-27. `body` es un avance de 140 caracteres (lo
+ * corta el API en SQL), nullable y no marcado obligatorio; el texto completo
+ * está en GET /leads/{id}/interactions.
+ */
+export const LastInteractionSchema = z.object({
+  occurred_at: instant,
+  direction: Direction,
+  type: InteractionType,
+  body: z.string().nullable().optional(),
+});
+
+/**
+ * GET /leads devuelve esto, no `LeadSchema`: los 8 campos de `LeadOut` más
+ * seis. Confirmado contra /openapi.json (`LeadCard`) el 2026-09-27.
+ * `GET /leads/{id}` y `POST /leads` siguen devolviendo `LeadSchema` a secas.
+ */
+export const LeadCardSchema = LeadSchema.extend({
+  client_name: z.string().nullable(),
+  listing_address: z.string().nullable(),
+  neighborhood: z.string().nullable(),
+  operation_type: OperationType,
+  asking_price: money,
+  last_interaction: LastInteractionSchema.nullable(),
+});
+
+/**
+ * GET y POST /leads/{id}/transitions (`TransitionOut`). Confirmado contra
+ * /openapi.json el 2026-09-10. La primera fila del log no tiene etapa de
+ * origen; `changed_by` es nulo cuando la movió el sistema. No trae el motivo
+ * de pérdida (ver docs/API_CONTRACT.md).
+ */
+export const TransitionSchema = z.object({
+  id: z.string().uuid(),
+  lead_id: z.string().uuid(),
+  from_stage: Stage.nullable(),
+  to_stage: Stage,
+  changed_by: z.string().uuid().nullable(),
+  changed_at: instant,
 });
 
 /**
@@ -193,6 +243,25 @@ export const CreateInteractionBody = z.object({
   occurred_at: instant.optional(),
 });
 
+/**
+ * POST /leads/{id}/transitions (`TransitionCreate`). Replica el
+ * `model_validator` del API (revisado en app/schemas.py el 2026-09-27):
+ * `lost_reason` es obligatorio con `LOST` y prohibido con cualquier otra
+ * etapa. Ausente o `null` fuera de `LOST` sí vale; lo que da 422 es un valor.
+ */
+export const CreateTransitionBody = z.object({
+  to_stage: Stage,
+  lost_reason: LostReason.nullable().optional(),
+  note: z.string().max(2000).nullable().optional(),
+}).superRefine((v, ctx) => {
+  if (v.to_stage === "LOST" && v.lost_reason == null) {
+    ctx.addIssue({ code: "custom", path: ["lost_reason"], message: "Para marcar el lead como perdido hay que elegir un motivo." });
+  }
+  if (v.to_stage !== "LOST" && v.lost_reason != null) {
+    ctx.addIssue({ code: "custom", path: ["lost_reason"], message: "El motivo de pérdida solo aplica al marcar el lead como perdido." });
+  }
+});
+
 export const CreateFeedbackBody = z.object({
   submitted_by: SubmittedBy,
   interest_score: z.number().int().min(1).max(5).optional(),
@@ -229,6 +298,11 @@ export const FeedbackSchema = z.object({
 export type Agent = z.infer<typeof AgentSchema>;
 export type Listing = z.infer<typeof ListingSchema>;
 export type Lead = z.infer<typeof LeadSchema>;
+export type LastInteraction = z.infer<typeof LastInteractionSchema>;
+export type LeadCard = z.infer<typeof LeadCardSchema>;
+export type Transition = z.infer<typeof TransitionSchema>;
+export type LostReason = z.infer<typeof LostReason>;
+export type CreateTransitionBody = z.input<typeof CreateTransitionBody>;
 export type Appointment = z.infer<typeof AppointmentSchema>;
 export type AppointmentDetail = z.infer<typeof AppointmentDetailSchema>;
 export type Interaction = z.infer<typeof InteractionSchema>;

@@ -31,6 +31,16 @@ fijos (exportados como `MOCK_IDS`):
 | Encuesta sobre visita no completada (2.5) | `POST .../feedback` sobre `APPOINTMENT_ID_NO_COMPLETADA`: siempre 409. |
 | Encuesta que sí procede (2.5) | `POST .../feedback` sobre `APPOINTMENT_ID_COMPLETADA`. |
 | Lista vacía (2.4 y 2.3) | `LEAD_ID_VACIO`: sin interacciones, tareas ni citas. |
+| Tablero completo (HU-06) | `GET /leads`: 14 tarjetas en las seis etapas (3 INTERESTED, 3 VISIT_SCHEDULED, 2 VISITED, 2 NEGOTIATING, 2 WON, 2 LOST). Respeta `stage`, `active`, `property_id`, `created_from`/`created_to` y el resto de filtros del contrato. |
+| Filtro por inmueble | `property_id = PROPERTY_ID_DOBLE`: casa de Laureles publicada en venta y en arriendo. |
+| Mover etapa (HU-06) | `LEAD_ID_NEGOCIANDO` puede ir a `WON` o `LOST`; cualquier otro destino da 409. |
+| Lead terminal | `LEAD_ID_GANADO` (WON) y `LEAD_ID_PERDIDO` (LOST): mover cualquiera da 409. |
+| `LOST` sin motivo, o motivo con otra etapa | 422, igual que el API. |
+
+Mover un lead actualiza `current_stage` en memoria, agrega la fila al log de
+`GET /leads/{id}/transitions`, escribe la interacción `STATUS_CHANGE` que
+escribe el API (siempre en `LOST`, en las demás solo con `note`) y, al
+cerrarlo, cancela sus visitas abiertas.
 
 `LEAD_ID` es el lead de Laura Restrepo con toda la historia (citas, tareas e
 interacciones descritas arriba); `APPOINTMENT_ID` es su cita del jueves 17.

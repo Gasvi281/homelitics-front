@@ -12,10 +12,30 @@ import { z } from "zod";
 import { HomeliticsError } from "./errores";
 import {
   AgentSchema, AppointmentSchema, AppointmentDetailSchema, FeedbackSchema,
-  InteractionSchema, LeadSchema, ListingSchema, SlotsSchema, TaskSchema,
+  InteractionSchema, LeadCardSchema, LeadSchema, ListingSchema, SlotsSchema,
+  TaskSchema, TransitionSchema,
   CreateAppointmentBody, CreateFeedbackBody, CreateInteractionBody,
-  PatchAppointmentBody,
+  CreateTransitionBody, PatchAppointmentBody,
+  type Stage,
 } from "./schemas";
+
+/** Filtros de GET /leads. Todos opcionales; ver docs/API_CONTRACT.md §3. */
+export type FiltrosLeads = {
+  stage?: Stage;
+  agent_id?: string;
+  listing_id?: string;
+  /** El inmueble físico: trae los leads de todas sus publicaciones, SALE y RENT. */
+  property_id?: string;
+  client_id?: string;
+  /** Día `YYYY-MM-DD`, inclusivo, en la zona de la agencia. */
+  created_from?: string;
+  /** Día `YYYY-MM-DD`, inclusivo, en la zona de la agencia. */
+  created_to?: string;
+  /** `true` oculta WON y LOST: es el tablero de trabajo. */
+  active?: boolean;
+  limit?: number;
+  offset?: number;
+};
 
 export type Pedir = <T>(path: string, schema: z.ZodType<T>, init?: RequestInit) => Promise<T>;
 
@@ -45,7 +65,7 @@ function statusAKind(status: number): ErrorKindDeStatus {
 }
 
 /** `new URLSearchParams({ city: undefined })` manda `city=undefined`; esto lo omite. */
-export function query(q: Record<string, string | number | undefined>): string {
+export function query(q: Record<string, string | number | boolean | undefined>): string {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(q)) if (v !== undefined) p.set(k, String(v));
   return p.toString();
@@ -129,8 +149,43 @@ export function crearApi(pedir: Pedir) {
 
     lead: (id: string) => pedir(`/leads/${id}`, LeadSchema),
 
-    leads: (q: { stage?: string; agent_id?: string; limit?: number } = {}) =>
-      pedir(`/leads?${query(q)}`, z.array(LeadSchema)),
+    /**
+     * Tablero (HU-06): una tarjeta por lead, `updated_at` descendente. Un
+     * rango de fechas al revés se rechaza aquí, sin llamar al API (que daría
+     * 422): las fechas `YYYY-MM-DD` se comparan bien como texto.
+     */
+    leads: async (q: FiltrosLeads = {}) => {
+      if (q.created_from && q.created_to && q.created_from > q.created_to) {
+        throw new HomeliticsError("invalido", "La fecha inicial es posterior a la final.", 422);
+      }
+      return pedir(`/leads?${query(q)}`, z.array(LeadCardSchema));
+    },
+
+    /** Log de etapas del lead, del más viejo al más nuevo. */
+    transiciones: (leadId: string) =>
+      pedir(`/leads/${leadId}/transitions`, z.array(TransitionSchema)),
+
+    /**
+     * Mueve el lead de etapa. La regla de `lost_reason` se valida antes de
+     * enviar y, si falla, sale como `HomeliticsError("invalido")`, igual que el
+     * 422 del API. Un 409 (salto ilegal o lead ya terminal) llega como
+     * `"conflicto"`: la pantalla revierte la tarjeta y relee el tablero.
+     * Cerrar (WON/LOST) cancela las visitas abiertas del lead: avisar antes.
+     */
+    moverLead: async (leadId: string, body: z.input<typeof CreateTransitionBody>) => {
+      const valido = CreateTransitionBody.safeParse(body);
+      if (!valido.success) {
+        throw new HomeliticsError(
+          "invalido",
+          valido.error.issues.map(i => i.message).join("; "),
+          422,
+        );
+      }
+      return pedir(`/leads/${leadId}/transitions`, TransitionSchema, {
+        method: "POST",
+        body: JSON.stringify(valido.data),
+      });
+    },
 
     /**
      * Tarea 2.1. OJO: el agente correcto es el del LEAD, no el del listing.

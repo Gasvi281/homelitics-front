@@ -854,3 +854,39 @@ leads de otros agentes, aparecieron dos reglas de `POST
 de "visita ya abierta" es solo para otro horario), y los agentes de IA solo
 reservan dentro de `/slots` con 120 minutos de anticipación. Agregadas al
 contrato. Ningún cambio de código: el `200` ya se trata como éxito.
+
+## 2026-09-27 — Base del tablero (HU-06 / HU-09), sin pantallas
+
+Hecho: `lib/schemas.ts` suma `LostReason`, `LastInteractionSchema`,
+`LeadCardSchema` (extiende `LeadSchema`; `asking_price` con el mismo `money`
+de los listings), `TransitionSchema` y `CreateTransitionBody`, con un
+`superRefine` que replica la regla del back (`lost_reason` obligatorio en
+`LOST` y prohibido con valor en cualquier otra etapa; `null` sí vale).
+`lib/etapas.ts` es la fuente única de orden (`EMBUDO`, `ETAPAS`), etiquetas de
+etapa y de motivo de pérdida, `esTerminal`, `puedeMover` y `destinosLegales`;
+`EmbudoLead` ya las importa de ahí. En `lib/homelitics-nucleo.ts`, `leads()`
+acepta todos los filtros del contrato (`FiltrosLeads`) y valida con
+`LeadCardSchema`; hay `transiciones()` y `moverLead()`. El mock tiene 5
+listings (uno con dos publicaciones, uno sin dirección) y 14 leads en las
+seis etapas, filtra como el API y aplica las reglas 409/422 de las
+transiciones con sus efectos (interacción `STATUS_CHANGE`, visitas canceladas
+al cerrar). `/api/mocktest` tiene casos nuevos para todo esto.
+
+Decidido: **no hizo falta un `kind` nuevo** en `lib/errores.ts`: 409 ya es
+`conflicto`, 422 ya es `invalido` y `traducirError` ya aplana el array de
+Pydantic. La pantalla hace lo mismo con los dos 409 (revertir y releer), así
+que no vale separarlos. `leads()` rechaza `created_from > created_to` sin
+llamar al API, y `moverLead()` convierte la falla del `superRefine` en
+`HomeliticsError("invalido")`, para que la pantalla nunca vea un `ZodError`.
+`/dev/explorar` ahora valida su `?stage=` con `Stage.safeParse`.
+
+Verificado: `tsc` y `eslint` limpios. Los mocks se probaron compilando el
+núcleo aparte y llamándolo con `usarMocks: true` (sin red): filtros, orden,
+paginación, 409 de salto ilegal/retroceso/terminal y los tres 422. **No** se
+corrió `/api/mocktest` en el navegador porque `.env.local` tiene
+`USE_MOCKS=false` y los casos de `moverLead` moverían leads reales.
+
+Pendiente: `crearCitaMock` no da el 409 "takes no visits" para leads
+terminales, y `actualizarCitaMock` no replica el `_sync_funnel` del
+calendario (cita `CONFIRMED`/`COMPLETED` que adelanta la etapa). Faltan las
+pantallas del tablero.
