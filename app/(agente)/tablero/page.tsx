@@ -2,14 +2,15 @@ import { dehydrate, HydrationBoundary, QueryClient } from "@tanstack/react-query
 import { api } from "@/lib/homelitics";
 import { Aviso } from "@/components/Aviso";
 import {
-  aFiltrosApi, claveLeadsTablero, clavePropiedades, leerFiltros, QUERY_PROPIEDADES,
-  rangoInvalido,
+  aFiltrosApi, claveLeadsTablero, clavePropiedades, esVistaCerrados, leerFiltros,
+  QUERY_PROPIEDADES, rangoInvalido,
 } from "@/features/tablero-leads/claves";
 import { FiltrosTablero } from "@/features/tablero-leads/components/FiltrosTablero";
 import { TableroLeads } from "@/features/tablero-leads/components/TableroLeads";
 
 /**
  * Tareas 2.8 y 2.9 — HU-06. Tablero de leads abiertos con filtros en la URL.
+ * Con `?etapa=WON|LOST`, la vista de cerrados de 2.12 (HU-09 AC2).
  *
  * Server Component: lee los filtros de `searchParams`, precarga GET /leads y
  * GET /listings (para el selector de propiedad) con un QueryClient nuevo por
@@ -46,9 +47,13 @@ export default async function TableroPage({
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8">
-      <h1 className="text-lg font-semibold text-neutral-900">Tablero de leads</h1>
+      <h1 className="text-lg font-semibold text-neutral-900">
+        {filtros.etapa === "LOST" ? "Leads perdidos" : filtros.etapa === "WON" ? "Leads ganados" : "Tablero de leads"}
+      </h1>
       <p className="mt-1 mb-6 text-sm text-neutral-600">
-        Leads abiertos de la agencia, del que tuvo actividad más reciente al más viejo.
+        {esVistaCerrados(filtros)
+          ? "Leads ya cerrados de la agencia, solo para consulta. Abre uno para ver su historial y el motivo."
+          : "Leads abiertos de la agencia, del que tuvo actividad más reciente al más viejo."}
       </p>
 
       <HydrationBoundary state={dehydrate(qc)}>

@@ -11,7 +11,8 @@ import { HomeliticsError } from "@/lib/homelitics-navegador";
 import { ETIQUETA_ETAPA, puedeMover } from "@/lib/etapas";
 import type { LeadCard, Stage } from "@/lib/schemas";
 import { Aviso } from "@/components/Aviso";
-import { ETAPAS_ABIERTAS, LIMITE_TABLERO, type FiltrosTablero } from "../claves";
+import { ModalPerdido } from "@/components/ModalPerdido";
+import { ETAPAS_ABIERTAS, esVistaCerrados, LIMITE_TABLERO, type FiltrosTablero } from "../claves";
 import {
   mensajeErrorMover, useLeadsMoviendose, useLeadsTablero, useMoverLead, type MoverLead,
 } from "../hooks";
@@ -29,8 +30,16 @@ import { TarjetaLead } from "./TarjetaLead";
  * en cualquier otra parte no llama al API. "Ganado" es una zona de soltar, no
  * una columna, y pide confirmación porque es terminal.
  *
+ * "Perdido" (2.11 — HU-09 AC1) es otra zona de soltar, fija abajo a la
+ * derecha y visible solo mientras se arrastra (acepta cualquier etapa
+ * abierta; con teclado se llega con flecha abajo). Soltar ahí no llama al
+ * API: abre ModalPerdido, y solo al confirmar el motivo corre el movimiento
+ * optimista y la tarjeta sale del tablero.
+ *
+ * Con `?etapa=WON|LOST` (2.12 — HU-09 AC2) no hay tablero sino una lista de
+ * solo lectura de los cerrados, sin arrastre.
+ *
  * Pendiente de 2.10: el menú "Mover a…" (táctil y alternativa sin arrastre).
- * "Perdido" es 2.11.
  */
 export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
   const { data: leads, error, isPending, isFetching } = useLeadsTablero(filtros);
@@ -45,6 +54,7 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
   });
   const [activo, setActivo] = useState<LeadCard | null>(null);
   const [porConfirmar, setPorConfirmar] = useState<LeadCard | null>(null);
+  const [porPerder, setPorPerder] = useState<LeadCard | null>(null);
 
   const sensores = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -68,6 +78,17 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
   if (error && !leads) return <Aviso variante="error">{mensajeError(error)}</Aviso>;
   if (!leads) return null;
 
+  if (esVistaCerrados(filtros)) {
+    return (
+      <ListaCerrados
+        etapa={filtros.etapa!}
+        leads={leads}
+        isFetching={isFetching}
+        error={error ? mensajeError(error) : null}
+      />
+    );
+  }
+
   const columnas = filtros.etapa ? [filtros.etapa] : ETAPAS_ABIERTAS;
   const porEtapa = agrupar(leads);
 
@@ -88,7 +109,9 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
     const hacia = over?.id as Stage | undefined;
     // Una columna deshabilitada nunca llega como `over`; esto es por si acaso.
     if (!lead || !hacia || !puedeMover(lead.current_stage, hacia)) return;
+    // Los dos terminales piden confirmación; ninguno toca la red todavía.
     if (hacia === "WON") setPorConfirmar(lead);
+    else if (hacia === "LOST") setPorPerder(lead);
     else mover({ lead, hacia });
   }
 
@@ -136,6 +159,10 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
         <Aviso>No hay leads abiertos con estos filtros.</Aviso>
       ) : (
         <DndContext
+          // Id fijo: el que genera @dnd-kit sale de un contador global que
+          // no coincide entre servidor y navegador (aria-describedby distinto
+          // al hidratar).
+          id="tablero-leads"
           sensors={sensores}
           collisionDetection={deteccion}
           accessibility={{ announcements: ANUNCIOS, screenReaderInstructions: INSTRUCCIONES }}
@@ -157,6 +184,7 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
               <ZonaGanado activo={activo} />
             </div>
           </div>
+          <ZonaPerdido activo={activo} />
           <DragOverlay>
             {activo && (
               <div className="rotate-1 cursor-grabbing rounded-lg shadow-lg">
@@ -176,6 +204,58 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
             setPorConfirmar(null);
           }}
         />
+      )}
+
+      {porPerder && (
+        <ModalPerdido
+          cliente={porPerder.client_name}
+          alCancelar={() => setPorPerder(null)}
+          alConfirmar={({ lost_reason, note }) => {
+            mover({ lead: porPerder, hacia: "LOST", lost_reason, note });
+            setPorPerder(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Vista de cerrados (2.12 — HU-09 AC2): los leads de `?etapa=WON|LOST`, pedidos
+ * sin `active`, en lista y de solo lectura. Cada tarjeta abre el lead, donde
+ * el historial muestra el motivo de pérdida.
+ */
+function ListaCerrados({
+  etapa, leads, isFetching, error,
+}: {
+  etapa: Stage;
+  leads: LeadCard[];
+  isFetching: boolean;
+  error: string | null;
+}) {
+  const nombre = etapa === "LOST" ? "perdido" : "ganado";
+  return (
+    <div>
+      <div className="mb-2 flex min-h-5 flex-wrap items-center gap-x-4 text-xs text-neutral-500">
+        <span>{leads.length === 1 ? `1 lead ${nombre}` : `${leads.length} leads ${nombre}s`}</span>
+        {isFetching && <span>Actualizando…</span>}
+        {error && <span className="text-red-700">{error}</span>}
+      </div>
+      {leads.length === LIMITE_TABLERO && (
+        <p className="mb-3 text-xs text-neutral-500">
+          Se muestran los primeros {LIMITE_TABLERO} leads. Usa los filtros para ver el resto.
+        </p>
+      )}
+      {leads.length === 0 ? (
+        <Aviso>No hay leads {nombre}s con estos filtros.</Aviso>
+      ) : (
+        <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {leads.map(lead => (
+            <li key={lead.id}>
+              <TarjetaLead lead={lead} />
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -273,6 +353,34 @@ function ZonaGanado({ activo }: { activo: LeadCard | null }) {
 }
 
 /**
+ * Zona de soltar de LOST. `fixed` para que se vea aunque las columnas tengan
+ * scroll horizontal. Siempre montada (así @dnd-kit la mide al empezar el
+ * arrastre, como a las columnas) pero `invisible` y fuera del árbol de
+ * accesibilidad mientras no se arrastra; `visibility` no cambia su rectángulo.
+ */
+function ZonaPerdido({ activo }: { activo: LeadCard | null }) {
+  const valida = acepta(activo, "LOST");
+  const { setNodeRef, isOver } = useDroppable({ id: "LOST", disabled: valida === false });
+  return (
+    <section
+      ref={setNodeRef}
+      aria-labelledby="zona-perdido"
+      aria-hidden={activo ? undefined : true}
+      className={`fixed right-6 bottom-6 z-20 w-56 rounded-lg border-2 border-dashed border-red-300 p-3 shadow-lg transition-[opacity,box-shadow] ${
+        activo ? "visible" : "invisible"
+      } ${valida && isOver ? "bg-red-100 ring-2 ring-red-600" : valida ? "bg-red-50 ring-2 ring-red-300" : "bg-neutral-50 opacity-60"}`}
+    >
+      <h2 id="zona-perdido" className="text-sm font-semibold text-neutral-900">
+        {ETIQUETA_ETAPA.LOST}
+      </h2>
+      <p className="mt-1 text-xs text-neutral-600">
+        Suelta aquí para cerrarlo como perdido. Te pedimos el motivo antes de guardarlo.
+      </p>
+    </section>
+  );
+}
+
+/**
  * Confirmación antes de WON: es terminal y cancela las visitas abiertas del
  * lead (docs/API_CONTRACT.md, POST /leads/{id}/transitions). `<dialog>`
  * modal nativo: atrapa el foco y cierra con Escape sin código extra. El foco
@@ -334,10 +442,18 @@ function ConfirmarGanado({
 
 /* ---------- arrastre: detección, teclado y anuncios ---------- */
 
-/** El puntero manda; con teclado no hay puntero y se usa el rectángulo de la tarjeta. */
+/**
+ * El puntero manda; con teclado no hay puntero y se usa el rectángulo de la
+ * tarjeta. La zona Perdido flota encima de las columnas: si el puntero está
+ * sobre ella, gana ella aunque debajo haya una columna. Con teclado no se le
+ * da prioridad, porque la tarjeta puede rozarla de paso al saltar de columna;
+ * ahí se llega con flecha abajo, que la deja centrada encima.
+ */
 const deteccion: CollisionDetection = args => {
   const bajoPuntero = pointerWithin(args);
-  return bajoPuntero.length > 0 ? bajoPuntero : rectIntersection(args);
+  if (bajoPuntero.length === 0) return rectIntersection(args);
+  const perdido = bajoPuntero.find(c => c.id === "LOST");
+  return perdido ? [perdido] : bajoPuntero;
 };
 
 /**
@@ -346,29 +462,45 @@ const deteccion: CollisionDetection = args => {
  * de a 25 px como hace @dnd-kit por defecto. La validez sale de
  * `puedeMover()` y no del `disabled` de cada columna: ese llega un render
  * después de tomar la tarjeta, y una flecha rápida lo alcanzaría a ganar.
+ *
+ * La zona Perdido no entra en ese recorrido lateral (es fija y su posición
+ * no sigue el orden de las columnas): flecha abajo la deja centrada encima,
+ * y desde ahí una flecha lateral la sube de vuelta a una columna.
  */
 const saltarDeColumna: KeyboardCoordinateGetter = (event, { currentCoordinates, context }) => {
+  const abajo = event.code === "ArrowDown";
   const sentido = event.code === "ArrowRight" ? 1 : event.code === "ArrowLeft" ? -1 : 0;
-  if (sentido === 0) return undefined;
+  if (sentido === 0 && !abajo) return undefined;
   event.preventDefault();
 
   const lead = context.active ? leadDe(context.active) : null;
   const tarjeta = context.collisionRect;
   if (!lead || !tarjeta) return currentCoordinates;
-  const centro = tarjeta.left + tarjeta.width / 2;
+  const zona = context.droppableRects.get("LOST");
 
+  if (abajo) {
+    if (!zona || !puedeMover(lead.current_stage, "LOST")) return currentCoordinates;
+    return {
+      x: currentCoordinates.x + zona.left + (zona.width - tarjeta.width) / 2 - tarjeta.left,
+      y: currentCoordinates.y + zona.top + (zona.height - tarjeta.height) / 2 - tarjeta.top,
+    };
+  }
+
+  const centro = tarjeta.left + tarjeta.width / 2;
   const siguiente = context.droppableContainers
     .getEnabled()
-    .filter(c => puedeMover(lead.current_stage, c.id as Stage))
+    .filter(c => c.id !== "LOST" && puedeMover(lead.current_stage, c.id as Stage))
     .map(c => context.droppableRects.get(c.id))
     .filter((r): r is NonNullable<typeof r> => Boolean(r))
     .filter(r => sentido * (r.left + r.width / 2 - centro) > 1)
     .sort((a, b) => sentido * (a.left - b.left))[0];
   if (!siguiente) return currentCoordinates;
 
+  // Si viene de la zona Perdido, la sube a la parte de arriba de la columna.
+  const enZona = zona && tarjeta.top + tarjeta.height / 2 >= zona.top && tarjeta.left + tarjeta.width / 2 >= zona.left;
   return {
     x: currentCoordinates.x + siguiente.left + (siguiente.width - tarjeta.width) / 2 - tarjeta.left,
-    y: currentCoordinates.y,
+    y: enZona ? currentCoordinates.y + siguiente.top + 16 - tarjeta.top : currentCoordinates.y,
   };
 };
 
@@ -386,7 +518,7 @@ function destinoDe(over: Over | null): string | null {
 
 const INSTRUCCIONES = {
   draggable:
-    "Para cambiar de etapa, presiona espacio para tomar la tarjeta, usa las flechas izquierda y derecha para llevarla a otra columna y espacio para soltarla. Escape cancela. Enter abre el lead.",
+    "Para cambiar de etapa, presiona espacio para tomar la tarjeta, usa las flechas izquierda y derecha para llevarla a otra columna, o la flecha abajo para llevarla a Perdido, y espacio para soltarla. Escape cancela. Enter abre el lead.",
 };
 
 const ANUNCIOS: Announcements = {
@@ -401,9 +533,11 @@ const ANUNCIOS: Announcements = {
   onDragEnd: ({ active, over }) =>
     over?.id === "WON"
       ? `Soltaste a ${nombreDe(active)} en Ganado. Confirma para cerrarlo.`
-      : destinoDe(over)
-        ? `Moviste a ${nombreDe(active)} a ${destinoDe(over)}.`
-        : `Soltaste a ${nombreDe(active)} fuera de una columna válida; no se movió.`,
+      : over?.id === "LOST"
+        ? `Soltaste a ${nombreDe(active)} en Perdido. Elige el motivo para cerrarlo; si cancelas, se queda donde estaba.`
+        : destinoDe(over)
+          ? `Moviste a ${nombreDe(active)} a ${destinoDe(over)}.`
+          : `Soltaste a ${nombreDe(active)} fuera de una columna válida; no se movió.`,
   onDragCancel: ({ active }) => `Cancelaste. ${nombreDe(active)} se queda donde estaba.`,
 };
 

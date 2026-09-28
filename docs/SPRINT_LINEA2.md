@@ -112,6 +112,17 @@ front solo lo consume en HU-17.
 - **Columnas:** `INTERESTED`, `VISIT_SCHEDULED`, `VISITED`, `NEGOTIATING`
   como columnas; `WON` y `LOST` como zonas de soltar, no como columnas con
   tarjetas (con `active=true` nunca traen tarjetas).
+- **"Perdido" (2.11)** es una zona fija abajo a la derecha, visible solo
+  mientras se arrastra (con teclado, flecha abajo). Soltar ahí no llama al
+  API: abre `components/ModalPerdido.tsx`, y el optimismo corre al confirmar
+  el motivo. El mismo diálogo y el mismo `useMoverLead` se usan desde el
+  botón "Marcar como perdido" del detalle del lead, que por eso pasó a leer
+  sus datos con TanStack Query (sembrados por el servidor): marcarlo invalida
+  `["leads", id]` y el historial muestra la línea del motivo sin recargar.
+- **Vista de cerrados (2.12):** `?etapa=LOST` (o `WON`) en la misma ruta
+  `/tablero`, pedida sin `active`; lista de solo lectura, sin arrastre. El
+  botón "Ver perdidos" entra y sale de ella. El detalle de un lead perdido
+  dice hasta qué etapa llegó, sacado de `GET /leads/{id}/transitions`.
 
 ### Notas y huecos
 

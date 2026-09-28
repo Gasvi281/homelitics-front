@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { fechaHoraLarga, formatPrecio, tiempoRelativo } from "@/lib/format";
+import { textoInteraccion } from "@/lib/lineaTiempo";
 import type { LastInteraction, LeadCard } from "@/lib/schemas";
 
 const ETIQUETA_OPERACION: Record<LeadCard["operation_type"], string> = {
@@ -34,6 +35,8 @@ export function TarjetaLead({
   descripcion?: string;
 }) {
   const ultima = lead.last_interaction;
+  // El "Lost: PRICE" que deja el API se lee "Perdido: Precio" (vista de perdidos).
+  const texto = ultima ? textoInteraccion(ultima) : null;
   return (
     <Link
       href={`/leads/${lead.id}`}
@@ -71,7 +74,7 @@ export function TarjetaLead({
                 {tiempoRelativo(ultima.occurred_at)}
               </time>
             </p>
-            {ultima.body && <p className="mt-1 line-clamp-2 text-neutral-600">{ultima.body}</p>}
+            {texto && <p className="mt-1 line-clamp-2 text-neutral-600">{texto}</p>}
           </>
         ) : (
           <p>Sin interacciones todavía</p>

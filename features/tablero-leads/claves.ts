@@ -5,7 +5,7 @@
  * los dos TIENEN que armar la misma key — si difieren, la hidratación no
  * encuentra el caché y el navegador vuelve a pedir todo.
  */
-import { EMBUDO } from "@/lib/etapas";
+import { EMBUDO, ETAPAS, esTerminal } from "@/lib/etapas";
 import type { FiltrosLeads } from "@/lib/homelitics-nucleo";
 import type { Stage } from "@/lib/schemas";
 
@@ -23,9 +23,20 @@ export type FiltrosTablero = {
 /**
  * Las columnas del tablero activo. `WON` y `LOST` nunca traen tarjetas con
  * `active=true`, y combinar `active=true` con `stage=WON|LOST` no está
- * documentado (docs/API_CONTRACT.md): el filtro de etapa solo ofrece estas.
+ * documentado (docs/API_CONTRACT.md): en el tablero activo el filtro de etapa
+ * solo ofrece estas.
  */
 export const ETAPAS_ABIERTAS: readonly Stage[] = EMBUDO.filter(e => e !== "WON");
+
+/**
+ * La vista de cerrados (2.12 — HU-09 AC2): `?etapa=WON` o `?etapa=LOST`.
+ * Pide `stage` SIN `active`, que es como el API deja consultar los cerrados.
+ */
+export const ETAPAS_CERRADAS: readonly Stage[] = ["WON", "LOST"];
+
+export function esVistaCerrados(f: FiltrosTablero): boolean {
+  return Boolean(f.etapa && esTerminal(f.etapa));
+}
 
 /** Máximo de `limit` en GET /leads. El tablero pide todo lo que puede de una vez. */
 export const LIMITE_TABLERO = 200;
@@ -41,14 +52,14 @@ function leer(sp: Params, clave: string): string | undefined {
 }
 
 /**
- * Normaliza lo que venga en la URL: un valor inválido (etapa terminal, fecha
- * mal formada) se descarta en vez de mandarse al API. Solo pone las claves
+ * Normaliza lo que venga en la URL: un valor inválido (etapa desconocida,
+ * fecha mal formada) se descarta en vez de mandarse al API. Solo pone las claves
  * que tienen valor, para que la query key no dependa de `undefined` sueltos.
  */
 export function leerFiltros(sp: Params): FiltrosTablero {
   const f: FiltrosTablero = {};
   const etapa = leer(sp, "etapa");
-  if (etapa && (ETAPAS_ABIERTAS as readonly string[]).includes(etapa)) f.etapa = etapa as Stage;
+  if (etapa && (ETAPAS as readonly string[]).includes(etapa)) f.etapa = etapa as Stage;
   const propiedad = leer(sp, "propiedad");
   if (propiedad) f.propiedad = propiedad;
   const desde = leer(sp, "desde");
@@ -65,7 +76,8 @@ export function rangoInvalido(f: FiltrosTablero): boolean {
 
 export function aFiltrosApi(f: FiltrosTablero): FiltrosLeads {
   return {
-    active: true,
+    // Nunca `active` junto con `stage=WON|LOST`: no está documentado.
+    active: esVistaCerrados(f) ? undefined : true,
     limit: LIMITE_TABLERO,
     stage: f.etapa,
     property_id: f.propiedad,
@@ -82,11 +94,27 @@ export function claveLeadsTablero(f: FiltrosTablero) {
 }
 
 /**
- * Log de etapas e historial de un lead. Hoy los lee el detalle
- * (app/(agente)/leads/[leadId]/page.tsx) en el servidor, sin caché del
- * navegador; mover un lead las invalida igual, para que ninguna vista de
- * cliente que las use se quede atrasada.
+ * Todo lo de un lead cuelga de `["leads", id]`: mover el lead invalida ese
+ * prefijo entero (etapa, log, historial, citas —cerrarlo cancela sus
+ * visitas— y tareas). El detalle (app/(agente)/leads/[leadId]/page.tsx) las
+ * siembra en el servidor y las lee con los hooks del navegador.
  */
+export function prefijoLead(leadId: string) {
+  return ["leads", leadId] as const;
+}
+
+export function claveLead(leadId: string) {
+  return ["leads", leadId, "detalle"] as const;
+}
+
+export function claveCitasLead(leadId: string) {
+  return ["leads", leadId, "citas"] as const;
+}
+
+export function claveTareasLead(leadId: string) {
+  return ["leads", leadId, "tareas"] as const;
+}
+
 export function claveTransiciones(leadId: string) {
   return ["leads", leadId, "transiciones"] as const;
 }

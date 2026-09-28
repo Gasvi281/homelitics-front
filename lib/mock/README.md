@@ -52,6 +52,13 @@ navegador tienen cada uno su copia en memoria. Lo que se mueve desde el
 navegador no lo ve la página del servidor, y un recargado o un hot reload
 vuelve a mostrar lo del servidor.
 
+El formulario de "Perdido" nunca manda un `LOST` sin motivo, así que el 422
+de HU-09 no sale solo: se fuerza con `{ falla: "invalido" }`. Por la misma
+razón de las dos copias, los leads que se pierden en el tablero no aparecen
+en `/tablero?etapa=LOST` (esa página la precarga el servidor): ahí se ven
+los dos perdidos de la semilla. En el detalle de un lead sí se ve todo,
+porque lo que se relee después de marcarlo sale de la copia del navegador.
+
 Mover un lead actualiza `current_stage` en memoria, agrega la fila al log de
 `GET /leads/{id}/transitions`, escribe la interacción `STATUS_CHANGE` que
 escribe el API (siempre en `LOST`, en las demás solo con `note`) y, al

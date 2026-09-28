@@ -3,7 +3,10 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { ETIQUETA_ETAPA } from "@/lib/etapas";
-import { ETAPAS_ABIERTAS, rangoInvalido, type FiltrosTablero as Filtros } from "../claves";
+import {
+  ETAPAS_ABIERTAS, ETAPAS_CERRADAS, esVistaCerrados, rangoInvalido,
+  type FiltrosTablero as Filtros,
+} from "../claves";
 import { usePropiedades } from "../hooks";
 
 /** Nombre del parámetro en la URL por cada filtro. */
@@ -14,6 +17,10 @@ const PARAMS = ["etapa", "propiedad", "desde", "hasta"] as const satisfies reado
  * enviar el formulario hace `router.replace` (navegación suave, sin recargar)
  * y la página vuelve a leer `searchParams`, así un enlace o una recarga
  * conservan el filtro. Un rango al revés se frena aquí y nunca llega al API.
+ *
+ * "Ver perdidos" (2.12 — HU-09 AC2) cambia a `?etapa=LOST` conservando los
+ * demás filtros; en esa vista el selector de etapa ofrece Ganado y Perdido
+ * (sin "Todas": sin etapa se vuelve al tablero activo).
  */
 export function FiltrosTablero({ filtros }: { filtros: Filtros }) {
   const router = useRouter();
@@ -52,12 +59,23 @@ export function FiltrosTablero({ filtros }: { filtros: Filtros }) {
   }
 
   function quitar() {
-    setValores({});
+    const nuevos: Filtros = cerrados ? { etapa: filtros.etapa } : {};
+    setValores(nuevos);
     setError(null);
-    navegar({});
+    navegar(nuevos);
   }
 
-  const hayFiltros = PARAMS.some(p => filtros[p]);
+  const cerrados = esVistaCerrados(filtros);
+
+  function alternarVista() {
+    setError(null);
+    const nuevos: Filtros = { ...filtros, etapa: cerrados ? undefined : "LOST" };
+    setValores(nuevos);
+    navegar(nuevos);
+  }
+
+  // En cerrados la etapa es la vista, no un filtro que se pueda quitar.
+  const hayFiltros = PARAMS.some(p => filtros[p] && !(cerrados && p === "etapa"));
   const campo = "mt-1 w-full rounded border border-neutral-300 bg-white p-2 text-sm text-neutral-900 disabled:opacity-60";
 
   return (
@@ -90,8 +108,8 @@ export function FiltrosTablero({ filtros }: { filtros: Filtros }) {
         <label className="block text-sm font-medium text-neutral-700">
           Etapa
           <select value={valores.etapa ?? ""} onChange={e => cambiar("etapa", e.target.value)} className={campo}>
-            <option value="">Todas las etapas</option>
-            {ETAPAS_ABIERTAS.map(etapa => (
+            {!cerrados && <option value="">Todas las etapas</option>}
+            {(cerrados ? ETAPAS_CERRADAS : ETAPAS_ABIERTAS).map(etapa => (
               <option key={etapa} value={etapa}>{ETIQUETA_ETAPA[etapa]}</option>
             ))}
           </select>
@@ -140,6 +158,14 @@ export function FiltrosTablero({ filtros }: { filtros: Filtros }) {
             Quitar los filtros
           </button>
         )}
+        <button
+          type="button"
+          onClick={alternarVista}
+          disabled={pendiente}
+          className="ml-auto rounded border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 disabled:opacity-40"
+        >
+          {cerrados ? "Volver al tablero activo" : "Ver perdidos"}
+        </button>
       </div>
     </form>
   );

@@ -968,3 +968,48 @@ Pendiente de 2.10: el menú "Mover a…" (táctil y alternativa sin arrastre:
 en táctil el arrastre no arranca porque no se puso `touch-action: none`,
 para no romper el scroll horizontal de las columnas). Después, 2.11
 (Perdido) y 2.12.
+
+## 2026-09-27 — Lead perdido (2.11 + 2.12, HU-09)
+
+Hecho: zona "Perdido" en el tablero, fija abajo a la derecha y visible solo
+mientras se arrastra (acepta cualquier etapa abierta; con teclado, flecha
+abajo). Soltar ahí no llama al API: abre `components/ModalPerdido.tsx`
+(`<dialog>` nativo, foco en el motivo, Esc cancela, motivo obligatorio con
+las etiquetas de `lib/etapas.ts`, nota opcional con contador de 2000, aviso
+de que es definitivo y cancela las visitas). Confirmar llama a
+`useMoverLead` con `to_stage: "LOST"`, `lost_reason` y `note`, y solo ahí
+corre el optimismo. El detalle del lead tiene el botón "Marcar como perdido"
+(`components/EtapaLead.tsx`) con el mismo modal y hook. Vista de cerrados:
+"Ver perdidos" cambia a `?etapa=LOST` (sin `active`), lista de solo lectura;
+el filtro de etapa ofrece Ganado/Perdido en ese modo. `lib/lineaTiempo.ts`
+suma `textoInteraccion()`: "Lost: PRICE — nota" se lee "Perdido: Precio —
+nota" en el historial y en las tarjetas. `EmbudoLead` recibe `perdidoDesde`
+(del log de transiciones) y muestra "Perdido en <etapa>".
+
+Decidido: el detalle del lead pasó a TanStack Query (el servidor siembra
+lead, interacciones, citas, tareas y transiciones con `setQueryData` +
+`HydrationBoundary`); sin eso no había nada que invalidar y `HistorialLead`
+guardaba los eventos en `useState`. Todo lo del lead cuelga de
+`["leads", id]` y `useMoverLead` invalida ese prefijo entero. En el tablero
+el modal se cierra al confirmar y un error sale en el aviso de siempre; en el
+detalle queda abierto mientras envía y muestra el error adentro para
+reintentar. En la detección de colisiones la zona Perdido gana solo bajo el
+puntero (con teclado podría rozarla al saltar de columna). `DndContext` lleva
+`id` fijo: el que genera @dnd-kit no coincidía entre servidor y navegador y
+daba un aviso de hidratación en `aria-describedby`. `mensajeErrorMover` suma
+el caso `invalido` y ya no nombra "el tablero".
+
+Verificado con `USE_MOCKS=true` (cambiado a mano en `.env.local` y
+restaurado): `tsc` y `eslint` limpios; perdido desde Interesado, Visita
+agendada y Visitó en el tablero (una por teclado) y desde Negociando en el
+detalle; Cancelar y Esc dejan la tarjeta en su columna; 422 forzado con
+`__homeliticsMock = { falla: "invalido" }`: en el tablero la tarjeta vuelve
+con aviso, en el detalle el error sale en el modal y el reintento funciona;
+"Ver perdidos" lista la semilla con el motivo traducido; el detalle de un
+perdido dice "Perdido en Visitó"/"Perdido en Negociando".
+
+Pendiente: el menú "Mover a…" de 2.10 (sigue siendo la única forma de
+perder desde el tablero sin arrastrar; en el detalle ya está el botón).
+Con mocks, lo perdido en el navegador no aparece en `?etapa=LOST` porque esa
+página la precarga la copia del servidor (anotado en `lib/mock/README.md`);
+con el API real no pasa. Falta probarlo contra el API real.

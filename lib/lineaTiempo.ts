@@ -1,11 +1,13 @@
-import type { Appointment, Interaction, Task } from "./schemas";
+import { ETIQUETA_MOTIVO_PERDIDA } from "./etapas";
+import { LostReason, type Appointment, type Interaction, type Task } from "./schemas";
 
 /**
  * Un solo tipo para las tres fuentes que mezcla la línea de tiempo del lead
- * (tarea 2.4): interacciones, citas y tareas. No hay endpoint de historial de
- * transiciones que valga usar aquí (docs/SPRINT_LINEA2.md): los cambios de
- * etapa ya llegan como interacciones `STATUS_CHANGE`, así que se leen igual
- * que cualquier otra interacción.
+ * (tarea 2.4): interacciones, citas y tareas. `GET /leads/{id}/transitions`
+ * existe, pero no se mezcla aquí: trae solo etapas, sin nota ni motivo, y lo
+ * que cuenta en el historial ya llega como interacción `STATUS_CHANGE` (LOST
+ * la escribe siempre, con el motivo). El log lo usa components/EmbudoLead.tsx
+ * para saber hasta dónde llegó un lead perdido.
  *
  * Vive aparte de components/HistorialLead.tsx (que es "use client") a
  * propósito: app/(agente)/leads/[leadId]/page.tsx (Server Component) necesita
@@ -42,4 +44,26 @@ export function construirLineaTiempo(args: {
     )),
   ];
   return eventos.sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime());
+}
+
+/**
+ * Cuerpo que escribe el API al pasar a LOST: `"Lost: <CÓDIGO>"` o
+ * `"Lost: <CÓDIGO> — <nota>"` (docs/API_CONTRACT.md, POST .../transitions).
+ */
+const CUERPO_LOST = /^Lost: ([A-Z_]+)(?: — ([\s\S]*))?$/;
+
+/**
+ * El texto de una interacción tal como se muestra. La `STATUS_CHANGE` de un
+ * LOST trae el código del motivo en inglés; se traduce a su etiqueta
+ * (`"Perdido: Precio — nota"`). Cualquier otro cuerpo, o un código que no
+ * se reconozca, sale tal cual: mejor el dato crudo que uno inventado.
+ */
+export function textoInteraccion(i: { type: Interaction["type"]; body?: string | null }): string | null {
+  const cuerpo = i.body ?? null;
+  if (i.type !== "STATUS_CHANGE" || !cuerpo) return cuerpo;
+  const partes = CUERPO_LOST.exec(cuerpo);
+  const motivo = LostReason.safeParse(partes?.[1]);
+  if (!partes || !motivo.success) return cuerpo;
+  const nota = partes[2]?.trim();
+  return `Perdido: ${ETIQUETA_MOTIVO_PERDIDA[motivo.data]}${nota ? ` — ${nota}` : ""}`;
 }
