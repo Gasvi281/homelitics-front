@@ -16,17 +16,37 @@ const ETIQUETA_TIPO: Record<LastInteraction["type"], string> = {
 
 /**
  * Una tarjeta del tablero (HU-06 AC1). Todo lo nullable de `LeadCard` se
- * dice como falta, no se inventa. Sin estado propio: la dibuja TableroLeads.
+ * dice como falta, no se inventa. Sin estado propio: la dibuja TableroLeads,
+ * que es quien la hace arrastrable.
+ *
+ * `draggable={false}`: el arrastre nativo de un enlace dispara
+ * `pointercancel` y corta el de @dnd-kit a mitad de camino.
  */
-export function TarjetaLead({ lead }: { lead: LeadCard }) {
+export function TarjetaLead({
+  lead,
+  pendiente = false,
+  descripcion,
+}: {
+  lead: LeadCard;
+  /** Hay un cambio de etapa en vuelo para este lead. */
+  pendiente?: boolean;
+  /** `aria-describedby` con las instrucciones de arrastre por teclado. */
+  descripcion?: string;
+}) {
   const ultima = lead.last_interaction;
   return (
     <Link
       href={`/leads/${lead.id}`}
-      className="block rounded-lg border border-neutral-200 bg-white p-3 hover:border-neutral-400 focus-visible:outline-2 focus-visible:outline-neutral-900"
+      draggable={false}
+      aria-describedby={descripcion}
+      aria-busy={pendiente || undefined}
+      className={`block select-none rounded-lg border bg-white p-3 focus-visible:outline-2 focus-visible:outline-neutral-900 ${
+        pendiente ? "animate-pulse border-dashed border-neutral-400" : "border-neutral-200 hover:border-neutral-400"
+      }`}
     >
-      <p className="text-sm font-medium text-neutral-900">
+      <p className="flex items-start justify-between gap-2 text-sm font-medium text-neutral-900">
         {lead.client_name ?? "Cliente sin nombre registrado"}
+        {pendiente && <span className="shrink-0 text-xs font-normal text-neutral-500">Moviendo…</span>}
       </p>
       <p className="mt-0.5 text-xs text-neutral-600">
         {lead.listing_address ?? "Dirección no registrada"}

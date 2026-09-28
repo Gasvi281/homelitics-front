@@ -74,8 +74,25 @@ export function aFiltrosApi(f: FiltrosTablero): FiltrosLeads {
   };
 }
 
+/** Prefijo de todas las keys del tablero, sea cual sea la combinación de filtros. */
+export const PREFIJO_TABLERO = ["leads", "tablero"] as const;
+
 export function claveLeadsTablero(f: FiltrosTablero) {
-  return ["leads", "tablero", f] as const;
+  return [...PREFIJO_TABLERO, f] as const;
+}
+
+/**
+ * Log de etapas e historial de un lead. Hoy los lee el detalle
+ * (app/(agente)/leads/[leadId]/page.tsx) en el servidor, sin caché del
+ * navegador; mover un lead las invalida igual, para que ninguna vista de
+ * cliente que las use se quede atrasada.
+ */
+export function claveTransiciones(leadId: string) {
+  return ["leads", leadId, "transiciones"] as const;
+}
+
+export function claveInteracciones(leadId: string) {
+  return ["leads", leadId, "interacciones"] as const;
 }
 
 export function clavePropiedades() {

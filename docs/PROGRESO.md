@@ -926,3 +926,45 @@ la red; queda por mirar contra el API real.
 
 Pendiente: 2.10 (drag & drop + "Mover a…"), 2.11 (perdido), 2.12 (cerrados).
 Paginación si una agencia pasa de 200 leads abiertos (hoy solo avisa).
+
+## 2026-09-27 — Drag & drop en el tablero (2.10, primera parte)
+
+Hecho: `@dnd-kit/core` 6.3.1 (versión fija, agregada a las dependencias
+aprobadas de `CLAUDE.md`). `TableroLeads` monta un `DndContext` con
+`PointerSensor` (8 px de activación: el clic sigue abriendo el lead) y
+`KeyboardSensor` (espacio toma y suelta, flechas saltan de columna válida en
+columna, Escape cancela, Enter abre el lead), con instrucciones y anuncios
+en español. Mientras se arrastra, solo las columnas que `puedeMover()`
+permite quedan resaltadas y activas; las demás, atenuadas y deshabilitadas.
+"Ganado" es una zona de soltar al final y pide confirmación en un
+`<dialog>` modal antes de enviar `WON`. `hooks.ts` suma `useMoverLead`
+(optimista), `useLeadsMoviendose` y `mensajeErrorMover`; `claves.ts` suma
+`PREFIJO_TABLERO`, `claveTransiciones` y `claveInteracciones`. La tarjeta en
+vuelo muestra "Moviendo…" y no se puede volver a arrastrar. `lib/mock` tiene
+un interruptor manual (`globalThis.__homeliticsMock`) para latencia y fallas.
+
+Decidido: onError no restaura la foto entera de cada key sino solo la
+tarjeta que falló, en su posición: con dos movimientos en vuelo, la foto del
+segundo ya trae el primero movido, y restaurarla lo re-aplicaba después de
+deshecho (se vio en la prueba). El tablero se relee solo cuando termina el
+último movimiento en vuelo (`isMutating() === 1`). `onSettled` no espera las
+relecturas: "pendiente" dura lo que dura el POST. El aviso de error va por
+un `alFallar` del hook y no por las opciones de `mutate()`, que solo corren
+para la última llamada. El aviso de red trae "Reintentar"; el de 409 no. Las
+columnas solo se deshabilitan cuando se sabe que son inválidas, y el salto
+por teclado filtra con `puedeMover()`: si no, una flecha rápida llegaba
+antes del render que habilita las válidas.
+
+Verificado con `USE_MOCKS=true` (cambiado a mano en `.env.local` y
+restaurado): `tsc` y `eslint` limpios; salto legal por teclado y por mouse;
+salto ilegal (Interesado → Visitó) con falla de red activada, sin aviso ni
+pendiente, o sea sin llamada; 409 simulado, la tarjeta vuelve y sale el
+mensaje; red simulada con dos tarjetas en vuelo, ambas vuelven a su lugar
+y orden, y "Reintentar" completa el movimiento; WON con confirmación sale
+del tablero; la tarjeta pendiente no se vuelve a tomar; el clic sigue
+navegando; sin errores de consola.
+
+Pendiente de 2.10: el menú "Mover a…" (táctil y alternativa sin arrastre:
+en táctil el arrastre no arranca porque no se puso `touch-action: none`,
+para no romper el scroll horizontal de las columnas). Después, 2.11
+(Perdido) y 2.12.

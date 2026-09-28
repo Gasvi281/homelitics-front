@@ -39,7 +39,7 @@
  */
 import { addDays } from "date-fns";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
-import { HomeliticsError } from "../errores";
+import { HomeliticsError, type ErrorKind } from "../errores";
 import { TZ } from "../format";
 import { EMBUDO, destinosLegales, esTerminal, puedeMover } from "../etapas";
 import {
@@ -837,12 +837,29 @@ function feedbackDeCitaMock(citaId: string): Feedback[] {
 
 /* ---------- router ---------- */
 
+/**
+ * Para probar a mano estados que los mocks no producen solos (ver README):
+ * desde la consola del navegador, o del servidor, se pone
+ * `globalThis.__homeliticsMock = { latenciaMs: 2000, falla: "red" }`.
+ * `latenciaMs` demora todas las respuestas; `falla` hace fallar las
+ * escrituras (no los GET) con ese `kind`. Se borra con `= undefined`.
+ */
+type PruebaMock = { latenciaMs?: number; falla?: ErrorKind };
+
 export async function resolverMock(path: string, method: string = "GET", body?: string): Promise<unknown> {
   const url = new URL(path, "http://mock");
   const { pathname, searchParams } = url;
   const cuerpo = body ? (JSON.parse(body) as Record<string, unknown>) : undefined;
   const m = method.toUpperCase();
   let match: RegExpMatchArray | null;
+
+  const prueba = (globalThis as { __homeliticsMock?: PruebaMock }).__homeliticsMock;
+  if (prueba?.latenciaMs) await new Promise(r => setTimeout(r, prueba.latenciaMs));
+  if (prueba?.falla && m !== "GET") {
+    throw prueba.falla === "red"
+      ? new HomeliticsError("red", "No se pudo contactar el servicio.")
+      : new HomeliticsError(prueba.falla, `Falla simulada (${prueba.falla}) en ${m} ${pathname}`);
+  }
 
   if (pathname === "/health" && m === "GET") return { status: "ok" };
   if (pathname === "/me" && m === "GET") return agente;

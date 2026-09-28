@@ -120,7 +120,7 @@ pantallas; `docs/SPRINT_LINEA2.md` lo describe en texto.
 
 `next`, `react`, `typescript`, `tailwindcss`, `shadcn/ui`, `zod`,
 `@tanstack/react-query`, `date-fns` y `date-fns-tz`, `@supabase/supabase-js`,
-`@supabase/ssr`.
+`@supabase/ssr`, `@dnd-kit/core` (el arrastre del tablero, tarea 2.10).
 
 ## Variables de entorno
 

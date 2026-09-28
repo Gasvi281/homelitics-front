@@ -103,11 +103,12 @@ front solo lo consume en HU-17.
   tabla de saltos legales del contrato, para no tener que esperar el 409 en el
   caso normal. El 409 sigue manejado: otra persona o el calendario pudieron
   mover el lead mientras tanto.
-- **Drag & drop sin dependencia nueva.** Ninguna librería de arrastre está en
-  la lista aprobada de `CLAUDE.md`; se hace con la API nativa de HTML5
-  (`draggable`, `onDragOver`, `onDrop`). Como esa API no funciona en táctil
-  ni con teclado, el menú "Mover a…" de 2.10 no es opcional. Si el equipo
-  prefiere una librería (p. ej. `@dnd-kit`), hay que aprobarla primero.
+- **Drag & drop con `@dnd-kit/core`** (aprobada el 2026-09-27, ya en la lista
+  de `CLAUDE.md`), en vez de la API nativa de HTML5: da arrastre por teclado
+  y anuncios para lector de pantalla. El puntero tiene 8 px de distancia de
+  activación para que un clic siga abriendo el lead. En táctil el arrastre no
+  se activa (las columnas necesitan el scroll horizontal), así que el menú
+  "Mover a…" de 2.10 sigue sin ser opcional.
 - **Columnas:** `INTERESTED`, `VISIT_SCHEDULED`, `VISITED`, `NEGOTIATING`
   como columnas; `WON` y `LOST` como zonas de soltar, no como columnas con
   tarjetas (con `active=true` nunca traen tarjetas).

@@ -37,6 +37,21 @@ fijos (exportados como `MOCK_IDS`):
 | Lead terminal | `LEAD_ID_GANADO` (WON) y `LEAD_ID_PERDIDO` (LOST): mover cualquiera da 409. |
 | `LOST` sin motivo, o motivo con otra etapa | 422, igual que el API. |
 
+Para lo que los datos solos no producen (una escritura que falla por red, un
+409 que el front no pudo prever, una respuesta lenta para ver estados
+pendientes) hay un interruptor manual. Desde la consola del navegador:
+
+```js
+globalThis.__homeliticsMock = { latenciaMs: 2000, falla: "red" } // o "conflicto", etc.
+globalThis.__homeliticsMock = undefined                            // lo apaga
+```
+
+`latenciaMs` demora todas las respuestas; `falla` hace fallar solo las
+escrituras (no los `GET`) con ese `kind`. Ojo: con mocks, servidor y
+navegador tienen cada uno su copia en memoria. Lo que se mueve desde el
+navegador no lo ve la página del servidor, y un recargado o un hot reload
+vuelve a mostrar lo del servidor.
+
 Mover un lead actualiza `current_stage` en memoria, agrega la fila al log de
 `GET /leads/{id}/transitions`, escribe la interacción `STATUS_CHANGE` que
 escribe el API (siempre en `LOST`, en las demás solo con `note`) y, al
