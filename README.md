@@ -1,8 +1,10 @@
 # homelitics-web
 
-Front de Homelitics (línea 2 del Sprint 4): cinco pantallas para agendar,
-mover, cancelar y calificar visitas a propiedades, más el historial de un
-lead para el agente. Next.js 15 (App Router) + TypeScript. El backend
+Front de Homelitics (línea 2): del lado del cliente, agendar, mover, cancelar
+y calificar visitas a propiedades; del lado del agente, el historial de un
+lead y el tablero de leads por etapa (arrastrar entre etapas, cerrar como
+ganado o perdido y consultar los perdidos). Next.js 15 (App Router) +
+TypeScript. El backend
 (`Luisrrodriguezg/homelitics-crm`) es otro repo, lo mantiene otra persona, y
 todo lo que este front puede asumir del API está en
 [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md).
@@ -13,20 +15,39 @@ proyecto y cómo probarlo.
 
 ## Requisitos
 
-- Node 20 o superior.
+- Node 20 o superior (probado con Node 22) y npm.
+- Git, para clonar el repo.
 - No hace falta ninguna credencial para empezar: con `USE_MOCKS=true` la app
   corre entera sin tocar la red (ver más abajo).
 
-## Instalar y correr
+## Arranque rápido (con datos de ejemplo, sin credenciales)
 
-```bash
-npm install
-npm run dev
-```
+1. Clona el repo e instala las dependencias:
+   ```bash
+   git clone https://github.com/Gasvi281/homelitics-front.git
+   cd homelitics-front
+   npm install
+   ```
+2. Crea tu `.env.local` a partir del ejemplo. En macOS, Linux o Git Bash:
+   ```bash
+   cp .env.example .env.local
+   ```
+   En PowerShell:
+   ```powershell
+   Copy-Item .env.example .env.local
+   ```
+   El ejemplo ya trae `USE_MOCKS=true` y `NEXT_PUBLIC_USE_MOCKS=true`: con
+   eso no hace falta llenar nada más.
+3. Levanta el servidor de desarrollo:
+   ```bash
+   npm run dev
+   ```
+4. Abre **`http://localhost:3000/tablero`** (el tablero de leads) o
+   cualquiera de las rutas de "Pantallas y cómo probarlas". La ruta raíz
+   (`/`) todavía no tiene pantalla propia: solo dice "en construcción".
 
-Abre `http://localhost:3000`. La ruta raíz (`/`) no tiene pantalla propia
-todavía — entra directo a una de las rutas de la sección "Pantallas y cómo
-probarlas".
+Si cambias algo de `.env.local`, para el servidor (`Ctrl+C`) y vuelve a
+correr `npm run dev`: Next solo lee ese archivo al arrancar.
 
 Otros scripts (`package.json`):
 
@@ -74,13 +95,33 @@ por ejemplo. Ese estado se pierde al reiniciar el servidor. Los ids fijos
 para reproducir cada caso están en
 [`lib/mock/README.md`](lib/mock/README.md) y resumidos más abajo.
 
+Dos cosas que conviene saber de los mocks:
+
+- **Servidor y navegador tienen cada uno su copia en memoria.** Lo que
+  cambias desde el navegador (mover una tarjeta, marcar un lead como
+  perdido) no lo ve una página que precarga el servidor, y recargar vuelve
+  a mostrar la copia del servidor. Por eso, por ejemplo, un lead que pierdes
+  en el tablero no aparece en `/tablero?etapa=LOST`. Con el API real no
+  pasa.
+- **Hay un interruptor para simular fallas y lentitud.** Desde la consola
+  del navegador:
+  ```js
+  globalThis.__homeliticsMock = { latenciaMs: 2000, falla: "red" } // o "conflicto", "invalido"
+  globalThis.__homeliticsMock = undefined                            // lo apaga
+  ```
+  `latenciaMs` demora todas las respuestas; `falla` hace fallar solo las
+  escrituras (no las lecturas) con ese tipo de error. Así se prueban el
+  409 y el 422 del tablero, o el aviso de "sin conexión".
+
 **Con `USE_MOCKS=false`** el front pega contra el API real
 (`HOMELITICS_API_URL`) con la credencial que resuelve `lib/session.ts`.
 Hace falta un agente demo real (email/contraseña) provisionado en el
 Supabase del proyecto, y los ids que uses tienen que existir de verdad en
 esa base — no hay forma de "inventar" un lead o una propiedad. **Ojo:
 cualquier acción que mande datos (crear/mover/cancelar una cita, agregar una
-nota, enviar una encuesta) escribe en la base compartida de verdad.** No es
+nota, enviar una encuesta, mover un lead de etapa o cerrarlo como ganado o
+perdido) escribe en la base compartida de verdad.** Cerrar un lead es
+definitivo y cancela sus visitas abiertas. No es
 un ambiente de prueba aislado.
 
 ### Probar contra el API real, paso a paso
@@ -111,11 +152,13 @@ un ambiente de prueba aislado.
    reintenta.
 
 3. **Encuentra leads reales y entra directo a cada pantalla desde el
-   navegador — sin ningún `curl`.** El front no tiene ninguna pantalla que
-   liste leads o propiedades (las cinco pantallas del sprint siempre reciben
-   un id ya conocido, por link — ver `docs/SPRINT_LINEA2.md`), así que se
-   agregó una: **`http://localhost:3000/dev/explorar`**. No es una sexta
-   pantalla del sprint, es una herramienta de desarrollo. Lista hasta 15
+   navegador — sin ningún `curl`.** Para leads, lo más directo es
+   **`http://localhost:3000/tablero`**: lista los leads abiertos de la
+   agencia y cada tarjeta abre su historial (2.4); "Ver perdidos" muestra
+   los cerrados. Las pantallas del cliente (2.1 a 2.5) reciben un id de
+   listing o de cita ya conocido, por link, y para esos está
+   **`http://localhost:3000/dev/explorar`**. No es una pantalla del sprint,
+   es una herramienta de desarrollo. Lista hasta 15
    leads de la agencia (más recientes primero, o filtrados por etapa con los
    chips de arriba — `?stage=LOST`, por ejemplo), y por cada uno ya trae
    listo:
@@ -163,8 +206,9 @@ un ambiente de prueba aislado.
    2026-09-15).
 
 7. **Todo lo que escribas es real.** No hay ambiente aislado de pruebas:
-   crear/mover/cancelar una cita, agregar una nota o enviar una encuesta
-   queda en la base compartida. Antes de reutilizar un lead que otro del
+   crear/mover/cancelar una cita, agregar una nota, enviar una encuesta o
+   mover un lead en el tablero queda en la base compartida. Un lead ganado
+   o perdido ya no se puede reabrir. Antes de reutilizar un lead que otro del
    equipo esté usando para una demo, avisa — `docs/PROGRESO.md` lleva un
    registro de qué leads/citas ya se tocaron en sesiones anteriores de
    prueba, para no pisarlos sin querer.
@@ -193,6 +237,14 @@ Con `USE_MOCKS=true`, estos son los ids fijos (`lib/mock/index.ts`):
 | `APPOINTMENT_ID_CANCELADA` (para 2.3: acciones deshabilitadas) | `a10a1000-0000-4000-8000-00000000000a` |
 | `APPOINTMENT_ID_NO_COMPLETADA` (para 2.5: da 409 al enviar encuesta) | `a10a1000-0000-4000-8000-00000000000b` |
 | `APPOINTMENT_ID_COMPLETADA` (para 2.5: la encuesta sí procede) | `a10a1000-0000-4000-8000-00000000000c` |
+| `LEAD_ID_NEGOCIANDO` (Daniel Henao, en Negociando: puede ir a Ganado o Perdido) | `a10a1000-0000-4000-8000-00000000007e` |
+| `LEAD_ID_GANADO` (Santiago Posada, ya ganado: moverlo da 409) | `a10a1000-0000-4000-8000-000000000080` |
+| `LEAD_ID_PERDIDO` (Felipe Correa, perdido desde Visitó por precio) | `a10a1000-0000-4000-8000-000000000082` |
+| `PROPERTY_ID_DOBLE` (casa de Laureles en venta y en arriendo, para el filtro por propiedad) | `a10a1000-0000-4000-8000-00000000006e` |
+
+El tablero trae 14 leads de ejemplo repartidos en las seis etapas (3 en
+Interesado, 3 en Visita agendada, 2 en Visitó, 2 en Negociando, 2 ganados y
+2 perdidos).
 
 ### 2.1 — Elegir horario
 
@@ -222,10 +274,51 @@ relee cada 5 segundos (`refetchInterval` de TanStack Query).
 
 ### 2.4 — Historial del lead
 
-`/leads/{LEAD_ID}` — mezcla interacciones, citas y tareas en una línea de
-tiempo, y tiene un campo para agregar una nota (se guarda como interacción y
-aparece de inmediato). Prueba también `/leads/{LEAD_ID_VACIO}` para el
-estado sin nada.
+`/leads/{LEAD_ID}` — el embudo con la etapa actual, y una línea de tiempo que
+mezcla interacciones, citas y tareas, con un campo para agregar una nota (se
+guarda como interacción y aparece de inmediato). Prueba también
+`/leads/{LEAD_ID_VACIO}` para el estado sin nada.
+
+Si el lead está abierto, tiene el botón **"Marcar como perdido"** (2.11):
+abre el mismo diálogo del tablero y, al confirmar, el embudo pasa a
+"Perdido en <etapa>" y el historial muestra "Perdido: <motivo> — <nota>".
+Pruébalo con `/leads/{LEAD_ID_NEGOCIANDO}`; `/leads/{LEAD_ID_PERDIDO}` ya
+está perdido y muestra "Perdido en Visitó".
+
+### 2.8 a 2.12 — Tablero de leads (HU-06 y HU-09)
+
+`/tablero` — también está en el menú de arriba de las pantallas de agente.
+
+- **Columnas** Interesado, Visita agendada, Visitó y Negociando, con las
+  tarjetas de los leads abiertos (cliente, propiedad, última interacción).
+  Cada tarjeta abre el historial del lead.
+- **Filtros en la URL** (`?propiedad=&etapa=&desde=&hasta=`): un enlace con
+  filtros abre el tablero ya filtrado y recargar no los pierde. Un rango de
+  fechas al revés se frena en el formulario.
+- **Mover de etapa** arrastrando la tarjeta: solo se resaltan las columnas a
+  las que el salto es legal (el embudo avanza de a una etapa). La tarjeta se
+  mueve al instante; si el API responde 409, vuelve a su columna con un
+  aviso. Con teclado: tabula hasta una tarjeta, espacio para tomarla,
+  flechas izquierda y derecha para cambiar de columna, espacio para
+  soltarla, Escape cancela.
+- **Ganado** es una zona de soltar al final: pide confirmación porque es
+  definitivo.
+- **Perdido** es una zona que aparece abajo a la derecha solo mientras
+  arrastras (con teclado, flecha abajo). Al soltar se abre un diálogo con el
+  motivo (obligatorio) y una nota opcional; recién al confirmar la tarjeta
+  sale del tablero. Cancelar la deja donde estaba.
+- **Ver perdidos** cambia a `/tablero?etapa=LOST`: una lista de solo
+  lectura de los leads cerrados (en el filtro de etapa se puede pasar a
+  Ganado). "Volver al tablero activo" regresa.
+
+Para probar los errores del tablero con mocks, usa el interruptor
+`globalThis.__homeliticsMock` (sección de mocks, arriba): `falla:
+"conflicto"` para el 409, `falla: "invalido"` para el 422 al marcar como
+perdido, `falla: "red"` para ver el botón "Reintentar".
+
+En pantallas táctiles el arrastre no arranca (las columnas necesitan el
+scroll horizontal) y el menú "Mover a…" todavía no existe; ahí, para cerrar
+un lead como perdido usa el botón del historial del lead.
 
 ### 2.5 — Encuesta post-visita
 
@@ -243,7 +336,7 @@ estado sin nada.
 ### Dos herramientas de desarrollo, ninguna de las dos es una pantalla del sprint
 
 - **`/dev/explorar`** — lista leads reales (filtrables por etapa) con links
-  ya armados a cada una de las cinco pantallas. Pensada para `USE_MOCKS=false`;
+  ya armados a las pantallas 2.1 a 2.5. Pensada para `USE_MOCKS=false`;
   ver "Probar contra el API real" arriba.
 - **`GET /api/mocktest`** (solo tiene sentido con `USE_MOCKS=true`) llama a
   varias operaciones de `lib/homelitics.ts` de una sola vez y devuelve un
@@ -256,7 +349,8 @@ estado sin nada.
 De vez en cuando (más frecuente si tocaste `lib/schemas.ts` o
 `lib/mock/index.ts` en caliente, o si reiniciaste `npm run dev` con una
 pestaña ya abierta) el navegador se queda pegado en `loading.tsx` de una
-ruta. No es un bug de la app: es un artefacto de Turbopack/HMR. Primero
+ruta. No es un bug de la app: es un artefacto del recargado en caliente
+(HMR) del dev server. Primero
 prueba abrir la URL en una **pestaña nueva**; si sigue, reinicia
 `npm run dev`. Detalle completo en `docs/PROGRESO.md` (entradas del
 2026-09-11 y 2026-09-14).
@@ -268,6 +362,8 @@ app/
   (cliente)/   quien busca vivienda, sin sesión
   (agente)/    quien gestiona leads, layout con TODO de sesión (etapa 2)
   api/homelitics/[...path]/route.ts   el proxy — el navegador SIEMPRE pega acá
+features/
+  tablero-leads/          el tablero: query keys (claves.ts), hooks y componentes
 lib/
   session.ts              la ÚNICA fuente de la credencial (server-only)
   homelitics.ts            cliente para Server Components: pega directo al API
@@ -276,8 +372,10 @@ lib/
   errores.ts                HomeliticsError, sin dependencias
   schemas.ts                zod: la forma de cada respuesta
   format.ts                  pesos colombianos y horas de Bogotá
+  etapas.ts                  etapas del lead, etiquetas y saltos legales
+  lineaTiempo.ts             arma y traduce la línea de tiempo del lead
   mock/                       datos falsos, misma forma que los reales
-components/
+components/                   piezas compartidas (p. ej. ModalPerdido, EmbudoLead)
 ```
 
 Reglas que no se rompen (el porqué está en `CLAUDE.md`, con la historia de
