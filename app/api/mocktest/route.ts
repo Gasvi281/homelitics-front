@@ -30,7 +30,14 @@ export async function GET() {
     await probar("ya ganado", () => api.moverLead(MOCK_IDS.LEAD_ID_GANADO, { to_stage: "LOST", lost_reason: "OTHER" })),
     await probar("mover ok", () => api.moverLead(MOCK_IDS.LEAD_ID_NEGOCIANDO, { to_stage: "WON", note: "Firmó la promesa" })),
     await probar("ya no está activo", async () => (await api.leads({ active: true })).some(l => l.id === MOCK_IDS.LEAD_ID_NEGOCIANDO)),
+    // GET /agents: sin bots por defecto; `role=AI_AGENT` los trae solo.
+    await probar("agentes", async () => (await api.agentes()).map(a => a.full_name)),
+    await probar("agentes activos", async () => (await api.agentes({ active: true })).length),
+    await probar("agentes con bots", async () => (await api.agentes({ include_bots: true })).map(a => a.role)),
+    await probar("agentes solo bots", async () => (await api.agentes({ role: "AI_AGENT" })).length),
+    await probar("agentes paginados", async () => (await api.agentes({ limit: 2, offset: 1 })).map(a => a.full_name)),
     // HU-08. `LEAD_ID` es del agente demo (`AGENT_ID`).
+    await probar("reasignar al bot", () => api.reasignarLead(MOCK_IDS.LEAD_ID, { to_agent_id: MOCK_IDS.AGENT_ID_BOT })),
     await probar("reasignar al dueño", () => api.reasignarLead(MOCK_IDS.LEAD_ID, { to_agent_id: MOCK_IDS.AGENT_ID })),
     await probar("reasignar a inactivo", () => api.reasignarLead(MOCK_IDS.LEAD_ID, { to_agent_id: MOCK_IDS.AGENT_ID_INACTIVO })),
     await probar("reasignar a desconocido", () => api.reasignarLead(MOCK_IDS.LEAD_ID, { to_agent_id: "a10a1000-0000-4000-8000-00000000ffff" })),

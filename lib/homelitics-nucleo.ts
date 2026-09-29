@@ -11,12 +11,12 @@
 import { z } from "zod";
 import { HomeliticsError } from "./errores";
 import {
-  AgentSchema, AppointmentSchema, AppointmentDetailSchema, FeedbackSchema,
+  AgentListItemSchema, AgentSchema, AppointmentSchema, AppointmentDetailSchema, FeedbackSchema,
   FunnelSchema, InteractionSchema, LeadCardSchema, LeadSchema, ListingSchema,
   LostReasonStatSchema, SlotsSchema, TaskSchema, TransitionSchema,
   CreateAppointmentBody, CreateFeedbackBody, CreateInteractionBody,
   CreateTransitionBody, PatchAppointmentBody, ReassignBody,
-  type OperationType, type Stage,
+  type AgentListItem, type OperationType, type Stage,
 } from "./schemas";
 
 /** Filtros de GET /leads. Todos opcionales; ver docs/API_CONTRACT.md §3. */
@@ -198,13 +198,19 @@ export function crearApi({ pedir, pedirTexto }: Transporte) {
     yo: () => pedir("/me", AgentSchema),
 
     /**
-     * HU-08 y HU-17. **PROPUESTO: GET /agents todavía no existe en el API**
-     * (docs/API_CONTRACT.md §3 bis): contra el API real hoy responde 404, y
-     * `useAgentes()` lo muestra como "pendiente". Excluye `AI_AGENT`, así que
-     * `AgentSchema` se queda en `AGENT | TEAM_ADMIN`.
+     * HU-08 y HU-17. Los agentes de la agencia del token, más viejos primero
+     * (docs/API_CONTRACT.md §3). Sin `AI_AGENT` salvo `include_bots`. No se
+     * manda `agency_id`: el API solo acepta la propia y otra da 404.
      */
-    agentes: (q: { active?: boolean } = {}) =>
-      pedir(`/agents?${query(q)}`, z.array(AgentSchema)),
+    agentes: (q: {
+      active?: boolean;
+      role?: AgentListItem["role"];
+      include_bots?: boolean;
+      /** 1–200; el API usa 100 si no se manda. */
+      limit?: number;
+      offset?: number;
+    } = {}) =>
+      pedir(`/agents?${query(q)}`, z.array(AgentListItemSchema)),
 
     listings: (q: { city?: string; limit?: number } = {}) =>
       pedir(`/listings?${query(q)}`, z.array(ListingSchema)),

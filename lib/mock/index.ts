@@ -28,13 +28,15 @@
  * | Tablero: lead ya WON (mover da 409)               | `LEAD_ID_GANADO`          |
  * | Tablero: lead ya LOST, con su STATUS_CHANGE       | `LEAD_ID_PERDIDO`         |
  * | Inmueble con dos publicaciones (filtro property_id)| `PROPERTY_ID_DOBLE`      |
- * | Agentes de la agencia (GET /agents, propuesto)    | `AGENT_ID`, `AGENT_ID_PAULA`, `AGENT_ID_ANDRES`, `AGENT_ID_INACTIVO` |
+ * | Agentes de la agencia (GET /agents)               | `AGENT_ID`, `AGENT_ID_PAULA`, `AGENT_ID_ANDRES`, `AGENT_ID_INACTIVO` |
+ * | Bot de la agencia (solo con `include_bots=true`)  | `AGENT_ID_BOT`            |
  *
  * GET /leads devuelve 14 tarjetas repartidas en las seis etapas, y
  * POST /leads/{id}/transitions aplica las reglas del API (409 y 422) y mueve
  * `current_stage` en memoria. POST /leads/{id}/reassign (HU-08) también:
  * 403 si el rol no es TEAM_ADMIN, 404 si el destino no existe, 409 si está
- * inactivo (`AGENT_ID_INACTIVO`) o ya es el dueño; si no, cambia `agent_id`.
+ * inactivo (`AGENT_ID_INACTIVO`), es un bot (`AGENT_ID_BOT`) o ya es el dueño;
+ * si no, cambia `agent_id`.
  *
  * "Horario ocupado" (2.2) no necesita un id especial: alcanza con pedir dos
  * veces la misma cita para el mismo agente, o con pedir una de las casillas
@@ -47,7 +49,7 @@ import { TZ } from "../format";
 import { EMBUDO, destinosLegales, esTerminal, puedeMover } from "../etapas";
 import {
   LostReason, Stage, TERMINAL_APPOINTMENT_STATUS,
-  type Agent, type Appointment, type AppointmentDetail, type Feedback,
+  type Agent, type AgentListItem, type Appointment, type AppointmentDetail, type Feedback,
   type Interaction, type Lead, type LeadCard, type Listing, type Task, type Transition,
 } from "../schemas";
 
@@ -86,6 +88,8 @@ const AGENT_ID_PAULA = uuid(30);
 const AGENT_ID_ANDRES = uuid(31);
 /** Desactivado: no sale con `?active=true` y no puede recibir leads. */
 const AGENT_ID_INACTIVO = uuid(32);
+/** `AI_AGENT`: fuera de GET /agents salvo `include_bots`, y no puede tener leads. */
+const AGENT_ID_BOT = uuid(33);
 
 /** Contador para ids generados en POST (citas, interacciones, feedback nuevos). */
 let siguienteId = 1000;
@@ -103,23 +107,15 @@ const agente: Agent = {
 };
 
 /**
- * GET /agents (PROPUESTO, docs/API_CONTRACT.md §3 bis): el demo y tres más
- * de su agencia. Sin filas AI_AGENT, como pediría la ruta.
+ * GET /agents (`AgentListItem`, sin email): el demo, tres más de su agencia
+ * y el bot, en orden de creación ("oldest first", como el API).
  */
-const agentes: Agent[] = [
-  agente,
-  {
-    id: AGENT_ID_PAULA, agency_id: AGENCY_ID, role: "AGENT", active: true,
-    full_name: "Paula Gómez", email: "paula.gomez@homelitics.test",
-  },
-  {
-    id: AGENT_ID_ANDRES, agency_id: AGENCY_ID, role: "AGENT", active: true,
-    full_name: "Andrés Montoya", email: "andres.montoya@homelitics.test",
-  },
-  {
-    id: AGENT_ID_INACTIVO, agency_id: AGENCY_ID, role: "AGENT", active: false,
-    full_name: "Carlos Úsuga", email: null,
-  },
+const agentes: AgentListItem[] = [
+  { id: agente.id, agency_id: agente.agency_id, role: agente.role, active: agente.active, full_name: agente.full_name },
+  { id: AGENT_ID_PAULA, agency_id: AGENCY_ID, role: "AGENT", active: true, full_name: "Paula Gómez" },
+  { id: AGENT_ID_ANDRES, agency_id: AGENCY_ID, role: "AGENT", active: true, full_name: "Andrés Montoya" },
+  { id: AGENT_ID_INACTIVO, agency_id: AGENCY_ID, role: "AGENT", active: false, full_name: "Carlos Úsuga" },
+  { id: AGENT_ID_BOT, agency_id: AGENCY_ID, role: "AI_AGENT", active: true, full_name: "Asistente Homelitics" },
 ];
 
 const listings: Listing[] = [
@@ -871,11 +867,23 @@ function feedbackDeCitaMock(citaId: string): Feedback[] {
 }
 
 /**
- * GET /agents, PROPUESTO (no existe en el API real, docs/API_CONTRACT.md
- * §3 bis). `?active=true` deja solo los activos; sin el parámetro, todos.
+ * GET /agents, mismas reglas que `app/routers/agents.py` del back: otra
+ * `agency_id` da 404; sin bots salvo `include_bots=true` o `role=AI_AGENT`;
+ * `active` y `role` filtran; `offset`/`limit` (default 100) paginan.
  */
-function agentesMock(params: URLSearchParams): Agent[] {
-  return params.get("active") === "true" ? agentes.filter(a => a.active) : agentes;
+function agentesMock(params: URLSearchParams): AgentListItem[] {
+  const agencia = params.get("agency_id");
+  if (agencia && agencia !== AGENCY_ID) noEncontrado("Agency not found");
+  const active = params.get("active");
+  const role = params.get("role");
+  const conBots = params.get("include_bots") === "true" || role === "AI_AGENT";
+  const offset = Number(params.get("offset") ?? 0);
+  const limit = Number(params.get("limit") ?? 100);
+  return agentes
+    .filter(a => conBots || a.role !== "AI_AGENT")
+    .filter(a => active === null || a.active === (active === "true"))
+    .filter(a => !role || a.role === role)
+    .slice(offset, offset + limit);
 }
 
 /** El rol con el que responde el mock: el de `agente`, salvo que `{ rol }` lo cambie. */
@@ -900,12 +908,15 @@ function reasignarLeadMock(
   if (typeof destinoId !== "string" || !destinoId) {
     throw new HomeliticsError("invalido", "to_agent_id: Field required", 422);
   }
-  const destino = agentes.find(a => a.id === destinoId) ?? noEncontrado("Target agent is not in your agency");
+  const destino = agentes.find(a => a.id === destinoId) ?? noEncontrado("Target agent not found in this agency");
   if (!destino.active) {
     throw new HomeliticsError("conflicto", "Target agent is deactivated", 409);
   }
+  if (destino.role === "AI_AGENT") {
+    throw new HomeliticsError("conflicto", "Cannot assign a lead to an AI agent", 409);
+  }
   if (leadActual.agent_id === destino.id) {
-    throw new HomeliticsError("conflicto", "Agent already owns this lead", 409);
+    throw new HomeliticsError("conflicto", "Lead is already assigned to that agent", 409);
   }
   leads = leads.map(l => (l.id === leadId ? { ...l, agent_id: destino.id } : l));
   return aLeadOut(buscarLead(leadId)!);
@@ -1149,8 +1160,6 @@ function motivosPerdidaMock(params: URLSearchParams) {
  * `globalThis.__homeliticsMock = { latenciaMs: 2000, falla: "red" }`.
  * `latenciaMs` demora todas las respuestas; `falla` hace fallar las
  * escrituras (no los GET) con ese `kind`. Se borra con `= undefined`.
- * `sinAgentes: true` hace que GET /agents dé 404, como el API real mientras
- * la ruta no exista: así se ve el estado "pendiente" de `useAgentes()`.
  * `rol: "AGENT"` cambia el rol que devuelve GET /me y hace que reasignar dé
  * 403. Ojo: el layout de (agente) lee /me en el SERVIDOR, así que desde la
  * consola del navegador solo cambia el POST (sirve para ver el 403 dentro del
@@ -1159,7 +1168,7 @@ function motivosPerdidaMock(params: URLSearchParams) {
  * `kind`: `falla` solo toca escrituras y el embudo solo lee.
  */
 type PruebaMock = {
-  latenciaMs?: number; falla?: ErrorKind; fallaAnalitica?: ErrorKind; sinAgentes?: boolean; rol?: Agent["role"];
+  latenciaMs?: number; falla?: ErrorKind; fallaAnalitica?: ErrorKind; rol?: Agent["role"];
 };
 
 export async function resolverMock(path: string, method: string = "GET", body?: string): Promise<unknown> {
@@ -1179,10 +1188,7 @@ export async function resolverMock(path: string, method: string = "GET", body?: 
 
   if (pathname === "/health" && m === "GET") return { status: "ok" };
   if (pathname === "/me" && m === "GET") return { ...agente, role: rolActual(prueba) };
-  if (pathname === "/agents" && m === "GET") {
-    if (prueba?.sinAgentes) noEncontrado("Not Found");
-    return agentesMock(searchParams);
-  }
+  if (pathname === "/agents" && m === "GET") return agentesMock(searchParams);
   if (pathname === "/listings" && m === "GET") return listingsMock(searchParams);
 
   if (pathname.startsWith("/analytics/") && prueba?.fallaAnalitica) {
@@ -1238,5 +1244,5 @@ export const MOCK_IDS = {
   AGENT_ID, LISTING_ID, CLIENT_ID, LEAD_ID, LEAD_ID_VACIO,
   APPOINTMENT_ID, APPOINTMENT_ID_CANCELADA, APPOINTMENT_ID_NO_COMPLETADA, APPOINTMENT_ID_COMPLETADA,
   LEAD_ID_NEGOCIANDO, LEAD_ID_GANADO, LEAD_ID_PERDIDO, PROPERTY_ID_DOBLE,
-  AGENT_ID_PAULA, AGENT_ID_ANDRES, AGENT_ID_INACTIVO,
+  AGENT_ID_PAULA, AGENT_ID_ANDRES, AGENT_ID_INACTIVO, AGENT_ID_BOT,
 };

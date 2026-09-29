@@ -27,8 +27,8 @@ const ETIQUETA_TIPO: Record<LastInteraction["type"], string> = {
  * `draggable={false}`: el arrastre nativo de un enlace dispara
  * `pointercancel` y corta el de @dnd-kit a mitad de camino.
  *
- * Al admin le dice quién atiende el lead (HU-08). Sin la lista de agentes
- * (GET /agents pendiente) `NombreAgente` no pinta nada y no ocupa espacio.
+ * Al admin le dice quién atiende el lead (HU-08). Mientras la lista de
+ * agentes carga (o si falla) `NombreAgente` no pinta nada y no ocupa espacio.
  */
 export function TarjetaLead({
   lead,

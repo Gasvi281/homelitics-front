@@ -13,8 +13,8 @@ import { SelectorAgente } from "@/features/agentes/components/SelectorAgente";
  * abre (ReasignarLead) hace la petición y le pasa `enviando` y `error`.
  *
  * El selector no ofrece al dueño actual ni a los inactivos: los dos darían
- * 409. Mientras GET /agents no exista (`useAgentes()` en "pendiente") no hay
- * de dónde elegir: Confirmar queda deshabilitado y dice por qué.
+ * 409. Si la lista de agentes no cargó no hay de dónde elegir: Confirmar
+ * queda deshabilitado y dice por qué.
  */
 export function ModalReasignar({
   dueñoId,
@@ -54,9 +54,7 @@ export function ModalReasignar({
     agentes.agentes.some(a => a.id === destino && a.active && a.id !== dueñoId);
 
   const motivoBloqueo =
-    agentes.estado === "pendiente" ? "No se puede reasignar hasta que el API liste los agentes."
-    : agentes.estado === "error" ? "No se puede reasignar sin la lista de agentes."
-    : null;
+    agentes.estado === "error" ? "No se puede reasignar sin la lista de agentes." : null;
 
   function confirmar(e: FormEvent) {
     e.preventDefault();

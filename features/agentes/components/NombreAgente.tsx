@@ -4,8 +4,8 @@ import { nombreAgente, useAgentes } from "../hooks";
 
 /**
  * El nombre de un agente a partir de su `agent_id` (el API solo da el id en
- * `LeadOut` y `LeadCard`). Mientras la lista no esté disponible —cargando,
- * GET /agents todavía sin publicar, o un error— no pinta nada: quien lo usa
+ * `LeadOut` y `LeadCard`). Mientras la lista no esté disponible —cargando o
+ * con error— no pinta nada: quien lo usa
  * no debe depender de que aparezca. `prefijo` ("A cargo de ") va dentro del
  * mismo `<span>`, para que desaparezca junto con el nombre.
  */

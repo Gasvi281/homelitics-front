@@ -15,7 +15,7 @@ const PARAMS = ["desde", "hasta", "propiedad", "operacion", "agente"] as const s
  * a leer `searchParams`. Un rango al revés se frena aquí y nunca llega al API.
  *
  * La página solo se le muestra al admin, así que el filtro por agente va
- * siempre; sin GET /agents, SelectorAgente queda deshabilitado y lo explica.
+ * siempre.
  */
 export function FiltrosEmbudo({ filtros }: { filtros: Filtros }) {
   const router = useRouter();

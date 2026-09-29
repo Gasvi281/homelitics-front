@@ -25,8 +25,7 @@ const PARAMS = ["etapa", "propiedad", "agente", "desde", "hasta"] as const satis
  * (sin "Todas": sin etapa se vuelve al tablero activo).
  *
  * "Agente" (HU-08) solo se le muestra al admin: `?agente=` → `agent_id`.
- * Ofrece también a los inactivos, que pueden conservar leads. Sin GET
- * /agents, SelectorAgente queda deshabilitado y lo explica.
+ * Ofrece también a los inactivos, que pueden conservar leads.
  */
 export function FiltrosTablero({ filtros }: { filtros: Filtros }) {
   const router = useRouter();

@@ -7,9 +7,6 @@ import { nombreAgente, useAgentes } from "../hooks";
  * Selector de agente de la agencia: el destino de una reasignación (HU-08)
  * o el filtro por agente del embudo (HU-17). Un `<select>` nativo con su
  * `<label>`, así teclado y lector de pantalla funcionan sin más.
- *
- * Mientras GET /agents no exista en el API (`useAgentes()` en "pendiente")
- * queda deshabilitado y lo dice; no es un error del usuario ni del servicio.
  */
 export function SelectorAgente({
   valor,
@@ -49,8 +46,7 @@ export function SelectorAgente({
       : [];
 
   const ayuda =
-    estado.estado === "pendiente" ? "Disponible cuando el API liste los agentes"
-    : estado.estado === "error" ? "No se pudieron cargar los agentes."
+    estado.estado === "error" ? "No se pudieron cargar los agentes."
     : estado.estado === "disponible" && opciones.length === 0 ? "No hay otros agentes para elegir."
     : null;
 

@@ -59,6 +59,21 @@ export const AgentSchema = z.object({
 });
 
 /**
+ * Una fila de `GET /agents` (`AgentListItem`): lo justo para elegir destino de
+ * una reasignación, sin datos de contacto. No es `AgentSchema` (el de `/me`):
+ * no trae `email` y `role` admite `AI_AGENT` (solo llega con `include_bots`).
+ * `full_name` no está en `required` de /openapi.json porque tiene default
+ * `None`, pero el API siempre lo serializa.
+ */
+export const AgentListItemSchema = z.object({
+  id: z.string().uuid(),
+  agency_id: z.string().uuid(),
+  role: z.enum(["AGENT", "TEAM_ADMIN", "AI_AGENT"]),
+  active: z.boolean(),
+  full_name: z.string().nullable(),
+});
+
+/**
  * `city`, `address`, `property_type`, `area_m2`, `bedrooms` y `bathrooms` son
  * nullable en el API (confirmado en /openapi.json: solo id, property_id,
  * agent_id, operation_type, asking_price, status y published_at son
@@ -334,6 +349,7 @@ export type LostReasonStat = z.infer<typeof LostReasonStatSchema>;
 export type OperationType = z.infer<typeof OperationType>;
 
 export type Agent = z.infer<typeof AgentSchema>;
+export type AgentListItem = z.infer<typeof AgentListItemSchema>;
 export type Listing = z.infer<typeof ListingSchema>;
 export type Lead = z.infer<typeof LeadSchema>;
 export type LastInteraction = z.infer<typeof LastInteractionSchema>;
