@@ -75,8 +75,37 @@ Agregado el 2026-09-27. Todo lo del API que usan estas tareas está en
 | 2.12 | Consultar los perdidos: vista de cerrados con `stage=LOST` (y `stage=WON`), aparte del tablero activo | HU-09 AC2 | El lead perdido desaparece del tablero activo y aparece en la vista de cerrados; en su historial (2.4) se lee el motivo, que el API deja como interacción `"Lost: <motivo> — <nota>"` |
 
 **HU-09 AC3 no es tarea de este bloque.** El conteo de motivos lo resuelve el
-back con `GET /analytics/lost-reasons` (ver `docs/API_CONTRACT.md` §7); el
+back con `GET /analytics/lost-reasons` (ver `docs/API_CONTRACT.md` §3); el
 front solo lo consume en HU-17.
+
+## HU-17: embudo de conversión
+
+Agregado el 2026-09-27. Ruta `(agente)/embudo`, solo `TEAM_ADMIN`. Usa
+`GET /analytics/funnel` y `GET /analytics/lost-reasons` (docs/API_CONTRACT.md
+§3). Código en `features/embudo/`.
+
+Criterio de "done":
+- Barras horizontales por etapa (Tailwind, sin librería de gráficas), ancho
+  por `pct_of_first`, con `leads_reached`, `pct_from_prev` y `pct_of_first`;
+  la etapa con menor `pct_from_prev` marcada "Aquí se pierden más clientes"
+  (AC1). Perdidos aparte. La misma información en una tabla accesible.
+- Filtros en la URL (`?desde&hasta&propiedad&operacion&agente`); un rango al
+  revés se frena en el formulario y, si llega por la URL, no se pide.
+- Motivos de pérdida con su propio selector de 30/90/180 días, aclarando que
+  no siguen los filtros del embudo (el endpoint solo acepta `days`).
+- Estados: cargando, vacío, error con reintento y sin permiso (un `AGENT` ve
+  el aviso sin que se llame al API).
+
+Estado: hecho y probado con mocks. Contra el API real (2026-09-27, solo
+lecturas): el agente demo es `AGENT`, así que `GET /analytics/funnel` da 403
+con cualquier filtro, en JSON y en CSV, y `/embudo` muestra el aviso de "solo
+administradores" sin errores en consola. **La forma real del JSON y del CSV no
+se pudo ver con datos**: se comparó `FunnelOut`/`FunnelStageOut` de
+`/openapi.json` con `FunnelSchema` (coinciden campo por campo, incluidos los
+`null`) y el CSV con el código del back. Falta un token `TEAM_ADMIN` (login
+real, etapa 2, o un demo admin en `.env.local`) para cerrar esa prueba.
+`GET /analytics/lost-reasons` sí respondió con datos reales y pasa por zod. El
+filtro por agente depende del bloqueo 7 (`GET /agents`).
 
 ### Arquitectura
 
@@ -149,7 +178,7 @@ front solo lo consume en HU-17.
 
 ## Bloqueos
 
-Tres cosas dependen de L1. Mientras no se resuelvan, la pantalla afectada se
+Varias cosas dependen de L1. Mientras no se resuelvan, la pantalla afectada se
 construye contra `lib/mock/`.
 
 1. **No hay forma de registrar un cliente nuevo.** `POST /leads` exige un
@@ -230,6 +259,61 @@ construye contra `lib/mock/`.
    tarjetas `LeadCard` con `client_name` (nullable). Sirve para el tablero de
    HU-06; `GET /leads/{id}`, que usa 2.4, sigue devolviendo `LeadOut` sin
    nombre.
+
+7. **No hay `GET /agents` — encontrado el 2026-09-27 al preparar HU-08 y
+   HU-17.** `/openapi.json` solo tiene rutas `/agents/{agent_id}/...`
+   (disponibilidad, ausencias, slots, calendario); no hay forma de listar los
+   agentes de la agencia. Se le pidió a L1 (Luis) con esta forma:
+   `list[AgentOut]` (`id`, `agency_id`, `role`, `active`, `full_name`,
+   `email`), filtrado por la agencia del token, sin `AI_AGENT`, con
+   `?active=true` opcional. Está en `docs/API_CONTRACT.md`, sección 3 bis,
+   marcado como propuesto.
+
+   Qué bloquea:
+   - **HU-08 (reasignar):** `POST /leads/{id}/reassign` existe, pero sin la
+     lista no hay de dónde sacar el `to_agent_id`. La pantalla está hecha y
+     probada con mocks (`features/reasignar/`, 2026-09-27); contra el API real
+     el botón aparece pero el modal no deja confirmar. El selector
+     (`features/agentes/components/SelectorAgente.tsx`) se muestra
+     deshabilitado con "Disponible cuando el API liste los agentes".
+   - **HU-17 (embudo):** el filtro por agente de `GET /analytics/funnel`
+     (`agent_id`) no tiene con qué poblarse. El resto de filtros sí.
+   - **Nombre del dueño de un lead** en el tablero y el detalle: hoy solo hay
+     `agent_id`. `NombreAgente` no pinta nada mientras tanto.
+
+   Cómo se sostiene mientras tanto: `useAgentes()`
+   (`features/agentes/hooks.ts`) traduce el 404 de esa ruta a un estado
+   `"pendiente"`, sin reintentar. Con `USE_MOCKS=true` la ruta sí responde
+   (4 agentes), para maquetar el caso con datos. Cuando L1 la publique,
+   ninguna pantalla cambia.
+
+   Verificado contra el API real el 2026-09-27: `GET /agents` y
+   `GET /agents?active=true` responden 404 `{"detail":"Not Found"}` a través
+   del proxy, y la ruta sigue sin estar en `/openapi.json`. Con el agente demo
+   (`AGENT`) ninguna pantalla llega a pedirla: el selector, el nombre del
+   dueño y el modal de reasignar están detrás de `useEsAdmin()`, y `/embudo`
+   se queda en el 403. Por eso el estado "pendiente" solo se ha visto con
+   mocks; con un admin real, Chrome va a anotar el 404 como "Failed to load
+   resource" en la consola (lo hace el navegador con cualquier respuesta 4xx,
+   no la app), pero la pantalla no debe mostrar error. No se reasignó ningún
+   lead real.
+
+   **Cuando exista `GET /agents`:**
+   - [ ] (a) Verificar la forma contra `/openapi.json` (campos, `role` sin
+     `AI_AGENT`, `?active=true`, filtrado por agencia) y mover la entrada de
+     la sección 3 bis ("PROPUESTO") a la sección 3 de
+     `docs/API_CONTRACT.md`; quitar la fila de "Lista de agentes → 404" de la
+     sección 4. Si la forma difiere, ajustar `AgentSchema` y el mock.
+   - [ ] (b) Quitar la traducción 404 → `"pendiente"` en `useAgentes()`
+     (`features/agentes/hooks.ts`, el TODO) y el estado `"pendiente"` de
+     `EstadoAgentes`, `SelectorAgente` y `NombreAgente`, y la opción
+     `sinAgentes` de `lib/mock/index.ts`.
+   - [ ] (c) Probar la reasignación en vivo con un lead de prueba (nunca un
+     lead real de la agencia), con un token `TEAM_ADMIN`: el lead cambia de
+     dueño, el tablero lo refleja y el 409/403 se ven como en el contrato.
+   - [ ] (d) Probar el filtro por agente en `/embudo` y `/tablero` contra el
+     API real: la URL con `?agente=` filtra, recargar no lo pierde y el CSV y
+     el PDF llevan el nombre del agente.
 
 ### Nota sobre 2.1: qué tan fiel es la grilla al prototipo
 

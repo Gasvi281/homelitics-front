@@ -28,10 +28,13 @@
  * | Tablero: lead ya WON (mover da 409)               | `LEAD_ID_GANADO`          |
  * | Tablero: lead ya LOST, con su STATUS_CHANGE       | `LEAD_ID_PERDIDO`         |
  * | Inmueble con dos publicaciones (filtro property_id)| `PROPERTY_ID_DOBLE`      |
+ * | Agentes de la agencia (GET /agents, propuesto)    | `AGENT_ID`, `AGENT_ID_PAULA`, `AGENT_ID_ANDRES`, `AGENT_ID_INACTIVO` |
  *
  * GET /leads devuelve 14 tarjetas repartidas en las seis etapas, y
  * POST /leads/{id}/transitions aplica las reglas del API (409 y 422) y mueve
- * `current_stage` en memoria.
+ * `current_stage` en memoria. POST /leads/{id}/reassign (HU-08) también:
+ * 403 si el rol no es TEAM_ADMIN, 404 si el destino no existe, 409 si está
+ * inactivo (`AGENT_ID_INACTIVO`) o ya es el dueño; si no, cambia `agent_id`.
  *
  * "Horario ocupado" (2.2) no necesita un id especial: alcanza con pedir dos
  * veces la misma cita para el mismo agente, o con pedir una de las casillas
@@ -78,6 +81,12 @@ const LEAD_ID_NEGOCIANDO = uuid(126);
 const LEAD_ID_GANADO = uuid(128);
 const LEAD_ID_PERDIDO = uuid(130);
 
+/* Agentes de la misma agencia (HU-08 y HU-17). `AGENT_ID` es el demo. */
+const AGENT_ID_PAULA = uuid(30);
+const AGENT_ID_ANDRES = uuid(31);
+/** Desactivado: no sale con `?active=true` y no puede recibir leads. */
+const AGENT_ID_INACTIVO = uuid(32);
+
 /** Contador para ids generados en POST (citas, interacciones, feedback nuevos). */
 let siguienteId = 1000;
 const nuevoId = () => uuid(siguienteId++);
@@ -92,6 +101,26 @@ const agente: Agent = {
   full_name: "Hernando Carrillo",
   email: null,
 };
+
+/**
+ * GET /agents (PROPUESTO, docs/API_CONTRACT.md §3 bis): el demo y tres más
+ * de su agencia. Sin filas AI_AGENT, como pediría la ruta.
+ */
+const agentes: Agent[] = [
+  agente,
+  {
+    id: AGENT_ID_PAULA, agency_id: AGENCY_ID, role: "AGENT", active: true,
+    full_name: "Paula Gómez", email: "paula.gomez@homelitics.test",
+  },
+  {
+    id: AGENT_ID_ANDRES, agency_id: AGENCY_ID, role: "AGENT", active: true,
+    full_name: "Andrés Montoya", email: "andres.montoya@homelitics.test",
+  },
+  {
+    id: AGENT_ID_INACTIVO, agency_id: AGENCY_ID, role: "AGENT", active: false,
+    full_name: "Carlos Úsuga", email: null,
+  },
+];
 
 const listings: Listing[] = [
   /** Manila 206. Los mismos valores que el ejemplo de docs/API_CONTRACT.md. */
@@ -184,16 +213,20 @@ type LeadMock = Lead & { client_name: string | null };
 function leadMock(
   id: string, clientId: string, clientName: string | null, listingId: string,
   canal: Lead["source_channel"], etapa: Lead["current_stage"], creado: string, actualizado: string,
+  agentId: string = AGENT_ID,
 ): LeadMock {
   return {
-    id, client_id: clientId, client_name: clientName, listing_id: listingId, agent_id: AGENT_ID,
+    id, client_id: clientId, client_name: clientName, listing_id: listingId, agent_id: agentId,
     source_channel: canal, current_stage: etapa, created_at: creado, updated_at: actualizado,
   };
 }
 
 /**
- * Todos del mismo agente para que /slots y las citas sigan funcionando. En
- * memoria: POST /leads/{id}/transitions cambia `current_stage` aquí.
+ * Repartidos entre los cuatro agentes para que reasignar (HU-08) tenga
+ * sentido. Los que tienen citas (`LEAD_ID`, y `LEAD_ID_VACIO` para agendar
+ * desde cero) se quedan con el demo: las citas semilla son suyas. El agente
+ * inactivo conserva dos leads, uno abierto: el caso típico de reasignación.
+ * En memoria: POST /leads/{id}/transitions cambia `current_stage` aquí.
  */
 let leads: LeadMock[] = [
   /** Laura Restrepo. Primer contacto el 1 de septiembre por Telegram. */
@@ -203,29 +236,29 @@ let leads: LeadMock[] = [
   leadMock(LEAD_ID_VACIO, CLIENT_ID_VACIO, null, LISTING_ID, "IN_APP", "INTERESTED",
     "2026-09-09T20:00:00Z", "2026-09-09T20:00:00Z"),
   leadMock(uuid(120), uuid(140), "Camila Ortiz", LISTING_ID_LAURELES_VENTA, "TELEGRAM", "INTERESTED",
-    "2026-09-20T13:10:00Z", "2026-09-20T13:32:00Z"),
+    "2026-09-20T13:10:00Z", "2026-09-20T13:32:00Z", AGENT_ID_PAULA),
   leadMock(uuid(121), uuid(141), "Juan Pablo Mejía", LISTING_ID_POBLADO, "CALL", "INTERESTED",
-    "2026-09-24T15:00:00Z", "2026-09-24T15:12:00Z"),
+    "2026-09-24T15:00:00Z", "2026-09-24T15:12:00Z", AGENT_ID_ANDRES),
   leadMock(uuid(122), uuid(142), "Sofía Zapata", LISTING_ID_LAURELES_ARRIENDO, "TELEGRAM", "VISIT_SCHEDULED",
-    "2026-09-10T16:40:00Z", "2026-09-22T14:00:00Z"),
+    "2026-09-10T16:40:00Z", "2026-09-22T14:00:00Z", AGENT_ID_PAULA),
   leadMock(uuid(123), uuid(143), null, LISTING_ID_ENVIGADO, "IN_APP", "VISIT_SCHEDULED",
-    "2026-09-12T21:15:00Z", "2026-09-21T12:30:00Z"),
+    "2026-09-12T21:15:00Z", "2026-09-21T12:30:00Z", AGENT_ID_INACTIVO),
   leadMock(uuid(124), uuid(144), "Mateo Arango", LISTING_ID_LAURELES_VENTA, "TELEGRAM", "VISITED",
     "2026-08-25T17:00:00Z", "2026-09-18T19:45:00Z"),
   leadMock(uuid(125), uuid(145), "Valentina Rojas", LISTING_ID, "CALL", "VISITED",
-    "2026-08-28T14:20:00Z", "2026-09-19T16:10:00Z"),
+    "2026-08-28T14:20:00Z", "2026-09-19T16:10:00Z", AGENT_ID_PAULA),
   leadMock(LEAD_ID_NEGOCIANDO, uuid(146), "Daniel Henao", LISTING_ID_POBLADO, "TELEGRAM", "NEGOTIATING",
     "2026-08-12T15:30:00Z", "2026-09-23T22:05:00Z"),
   leadMock(uuid(127), uuid(147), "Isabella Cardona", LISTING_ID_LAURELES_ARRIENDO, "IN_APP", "NEGOTIATING",
-    "2026-08-18T13:00:00Z", "2026-09-15T18:20:00Z"),
+    "2026-08-18T13:00:00Z", "2026-09-15T18:20:00Z", AGENT_ID_ANDRES),
   leadMock(LEAD_ID_GANADO, uuid(148), "Santiago Posada", LISTING_ID_LAURELES_VENTA, "CALL", "WON",
     "2026-08-03T16:00:00Z", "2026-09-05T20:00:00Z"),
   leadMock(uuid(129), uuid(149), "Mariana Vélez", LISTING_ID_ENVIGADO, "TELEGRAM", "WON",
-    "2026-08-06T19:30:00Z", "2026-08-30T15:00:00Z"),
+    "2026-08-06T19:30:00Z", "2026-08-30T15:00:00Z", AGENT_ID_PAULA),
   leadMock(LEAD_ID_PERDIDO, uuid(150), "Felipe Correa", LISTING_ID_POBLADO, "TELEGRAM", "LOST",
-    "2026-08-10T14:00:00Z", "2026-09-02T17:30:00Z"),
+    "2026-08-10T14:00:00Z", "2026-09-02T17:30:00Z", AGENT_ID_ANDRES),
   leadMock(uuid(131), uuid(151), null, LISTING_ID, "IN_APP", "LOST",
-    "2026-08-20T20:10:00Z", "2026-08-27T13:00:00Z"),
+    "2026-08-20T20:10:00Z", "2026-08-27T13:00:00Z", AGENT_ID_INACTIVO),
 ];
 
 function buscarLead(id: string): LeadMock | undefined {
@@ -354,7 +387,9 @@ function mensaje(
 ): Interaction {
   return {
     id: uuid(n), lead_id: leadId, direction: direccion, channel: canal, type: tipo,
-    body: cuerpo, occurred_at: cuando, created_by: direccion === "OUTBOUND" ? AGENT_ID : null,
+    body: cuerpo, occurred_at: cuando,
+    // Lo que sale lo escribe el dueño del lead; lo que entra, el cliente.
+    created_by: direccion === "OUTBOUND" ? buscarLead(leadId)?.agent_id ?? AGENT_ID : null,
   };
 }
 
@@ -381,7 +416,7 @@ function historialSemilla(l: LeadMock): Transition[] {
     lead_id: l.id,
     from_stage: i === 0 ? null : camino[i - 1],
     to_stage: etapa,
-    changed_by: i === 0 ? null : AGENT_ID,
+    changed_by: i === 0 ? null : l.agent_id,
     changed_at: new Date(camino.length === 1 ? inicio : inicio + ((fin - inicio) * i) / (camino.length - 1)).toISOString(),
   }));
 }
@@ -655,7 +690,7 @@ function slotsMock(
   agentId: string,
   params: URLSearchParams,
 ): { agent_id: string; slot_minutes: number; duration_min: number; slots: string[] } {
-  if (agentId !== AGENT_ID) noEncontrado("El agente no existe o es de otra agencia.");
+  if (!agentes.some(a => a.id === agentId)) noEncontrado("El agente no existe o es de otra agencia.");
   const desdeRaw = params.get("from");
   const hastaRaw = params.get("to");
   if (!desdeRaw || !hastaRaw) {
@@ -713,7 +748,7 @@ function crearCitaMock(leadId: string, cuerpo: Record<string, unknown> | undefin
  * GET /appointments/{id} (a diferencia de `citasDelLeadMock`) trae más que la
  * cita: `location`, `agent_name` y `google_calendar_url` ya resueltos del
  * lado del API — ver `AppointmentDetailSchema` en lib/schemas.ts. El mock
- * tiene un solo agente; el listing sale del lead de la cita.
+ * resuelve el nombre del agente de la cita; el listing sale del lead de la cita.
  */
 function citaPorIdMock(id: string): AppointmentDetail {
   const encontrada = citas.find(c => c.id === id);
@@ -723,7 +758,7 @@ function citaPorIdMock(id: string): AppointmentDetail {
     ...encontrada,
     listing_id: pub.id,
     location: [pub.address, pub.neighborhood, pub.city].filter(Boolean).join(", "),
-    agent_name: agente.full_name,
+    agent_name: agentes.find(a => a.id === encontrada.agent_id)?.full_name ?? null,
     google_calendar_url:
       `https://calendar.google.com/calendar/render?action=TEMPLATE&text=Visita+Homelitics`,
   };
@@ -835,6 +870,277 @@ function feedbackDeCitaMock(citaId: string): Feedback[] {
   return feedbacks.filter(f => f.appointment_id === citaId);
 }
 
+/**
+ * GET /agents, PROPUESTO (no existe en el API real, docs/API_CONTRACT.md
+ * §3 bis). `?active=true` deja solo los activos; sin el parámetro, todos.
+ */
+function agentesMock(params: URLSearchParams): Agent[] {
+  return params.get("active") === "true" ? agentes.filter(a => a.active) : agentes;
+}
+
+/** El rol con el que responde el mock: el de `agente`, salvo que `{ rol }` lo cambie. */
+function rolActual(prueba: PruebaMock | undefined): Agent["role"] {
+  return prueba?.rol ?? agente.role;
+}
+
+/**
+ * POST /leads/{id}/reassign (HU-08), mismas reglas y mismo orden que el API
+ * (docs/API_CONTRACT.md): 403, 404 del lead, 422 del cuerpo, 404 del destino,
+ * 409. Solo cambia `agent_id`: el API escribe `assignment_audit`, que el
+ * front no lee, y NO deja interacción en el historial.
+ */
+function reasignarLeadMock(
+  leadId: string, cuerpo: Record<string, unknown> | undefined, prueba: PruebaMock | undefined,
+): Lead {
+  if (rolActual(prueba) !== "TEAM_ADMIN") {
+    throw new HomeliticsError("sin_permiso", "Only a TEAM_ADMIN can reassign leads", 403);
+  }
+  const leadActual = buscarLead(leadId) ?? noEncontrado("El lead no existe o es de otra agencia.");
+  const destinoId = cuerpo?.to_agent_id;
+  if (typeof destinoId !== "string" || !destinoId) {
+    throw new HomeliticsError("invalido", "to_agent_id: Field required", 422);
+  }
+  const destino = agentes.find(a => a.id === destinoId) ?? noEncontrado("Target agent is not in your agency");
+  if (!destino.active) {
+    throw new HomeliticsError("conflicto", "Target agent is deactivated", 409);
+  }
+  if (leadActual.agent_id === destino.id) {
+    throw new HomeliticsError("conflicto", "Agent already owns this lead", 409);
+  }
+  leads = leads.map(l => (l.id === leadId ? { ...l, agent_id: destino.id } : l));
+  return aLeadOut(buscarLead(leadId)!);
+}
+
+/* ---------- analítica (HU-17) ---------- */
+
+/**
+ * Lo que necesitan GET /analytics/funnel y /lost-reasons de un lead: de qué
+ * agente y publicación es, cuándo se creó, hasta qué etapa del embudo llegó
+ * alguna vez y, si se perdió, por qué y cuándo.
+ */
+type RegistroAnalitica = {
+  agentId: string;
+  listingId: string;
+  creado: string;
+  /** La etapa más avanzada de `EMBUDO` a la que llegó (nunca `LOST`). */
+  alcanzo: Stage;
+  perdido: { motivo: LostReason; en: string } | null;
+};
+
+/**
+ * "Hoy" fijo del mock: la cohorte histórica se generó contra esta fecha, y la
+ * ventana de /lost-reasons cuenta hacia atrás desde aquí (o desde ahora, si
+ * es más tarde, para que un LOST hecho en la sesión entre en la cuenta).
+ */
+const HOY_ANALITICA = "2026-09-27T17:00:00Z";
+
+/** PRNG con semilla (mulberry32): la cohorte sale igual en cada arranque. */
+function prng(semilla: number) {
+  let a = semilla;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function elegir<T>(azar: () => number, opciones: readonly (readonly [T, number])[]): T {
+  const total = opciones.reduce((s, [, peso]) => s + peso, 0);
+  let r = azar() * total;
+  for (const [valor, peso] of opciones) {
+    if ((r -= peso) < 0) return valor;
+  }
+  return opciones[opciones.length - 1][0];
+}
+
+/** Motivo más probable según la etapa en la que se cayó el lead. */
+const MOTIVOS_POR_ETAPA: Record<string, readonly (readonly [LostReason, number])[]> = {
+  INTERESTED: [["NO_RESPONSE", 6], ["LOCATION", 2], ["PRICE", 1], ["OTHER", 1]],
+  VISIT_SCHEDULED: [["NO_RESPONSE", 3], ["LOCATION", 3], ["PRICE", 2], ["OTHER", 1]],
+  VISITED: [["PRICE", 6], ["LOCATION", 2], ["BOUGHT_ELSEWHERE", 2], ["OTHER", 1]],
+  NEGOTIATING: [["FINANCING", 4], ["BOUGHT_ELSEWHERE", 3], ["PRICE", 2]],
+};
+
+/**
+ * Cohorte histórica SOLO para analítica: ~120 leads de junio a septiembre
+ * que no aparecen en GET /leads (el tablero muestra 14; con eso no hay
+ * embudo que leer). Diseñada para que la caída clara esté en
+ * VISITED → NEGOTIATING (~30 %), frente a 55–75 % en las demás, y para que
+ * cada filtro cambie la foto: el arriendo convierte mejor a visita, Paula
+ * negocia más y Andrés cierra menos.
+ */
+const COHORTE_HISTORICA: readonly RegistroAnalitica[] = (() => {
+  const azar = prng(17);
+  const inicio = Date.parse("2026-06-01T13:00:00Z");
+  const fin = Date.parse("2026-09-20T23:00:00Z");
+  const hoy = Date.parse(HOY_ANALITICA);
+  const dia = 86_400_000;
+  const registros: RegistroAnalitica[] = [];
+
+  for (let i = 0; i < 120; i++) {
+    const agentId = elegir(azar, [
+      [AGENT_ID, 4], [AGENT_ID_PAULA, 3], [AGENT_ID_ANDRES, 3], [AGENT_ID_INACTIVO, 1],
+    ] as const);
+    const listing = elegir(azar, listings.map(l => [l, 1] as const));
+    const creado = inicio + azar() * (fin - inicio);
+
+    const pasos = [
+      listing.operation_type === "RENT" ? 0.75 : 0.62, // INTERESTED → VISIT_SCHEDULED
+      0.72, //                                            VISIT_SCHEDULED → VISITED
+      agentId === AGENT_ID_PAULA ? 0.45 : 0.27, //        VISITED → NEGOTIATING
+      agentId === AGENT_ID_ANDRES ? 0.35 : 0.6, //        NEGOTIATING → WON
+    ];
+    let indice = 0;
+    while (indice < pasos.length && azar() < pasos[indice]) indice++;
+    const alcanzo = EMBUDO[indice];
+
+    let perdido: RegistroAnalitica["perdido"] = null;
+    const viejo = hoy - creado > 21 * dia;
+    if (alcanzo !== "WON" && azar() < (viejo ? 0.75 : 0.25)) {
+      const en = Math.min(creado + (3 + azar() * 40) * dia, hoy - dia);
+      perdido = {
+        motivo: elegir(azar, MOTIVOS_POR_ETAPA[alcanzo]),
+        en: new Date(Math.max(en, creado)).toISOString(),
+      };
+    }
+    registros.push({ agentId, listingId: listing.id, creado: new Date(creado).toISOString(), alcanzo, perdido });
+  }
+  return registros;
+})();
+
+/**
+ * Los 14 leads del tablero, leídos del estado en memoria: hasta dónde llegaron
+ * sale del log de transiciones y el motivo de pérdida de su STATUS_CHANGE,
+ * así que mover un lead en el tablero cambia el embudo, como en el API.
+ */
+function registrosDeLeads(): RegistroAnalitica[] {
+  return leads.map(l => {
+    const log = transiciones.filter(t => t.lead_id === l.id);
+    const indice = Math.max(0, ...log.map(t => EMBUDO.indexOf(t.to_stage)));
+    let perdido: RegistroAnalitica["perdido"] = null;
+    if (l.current_stage === "LOST") {
+      const cierre = [...interacciones]
+        .reverse()
+        .find(x => x.lead_id === l.id && x.type === "STATUS_CHANGE" && x.body?.startsWith("Lost: "));
+      const codigo = cierre?.body?.slice("Lost: ".length).split(" ")[0];
+      const en = [...log].reverse().find(t => t.to_stage === "LOST")?.changed_at ?? l.updated_at;
+      perdido = { motivo: LostReason.safeParse(codigo).data ?? "OTHER", en };
+    }
+    return { agentId: l.agent_id, listingId: l.listing_id, creado: l.created_at, alcanzo: EMBUDO[indice], perdido };
+  });
+}
+
+function registrosAnalitica(): RegistroAnalitica[] {
+  return [...COHORTE_HISTORICA, ...registrosDeLeads()];
+}
+
+/**
+ * `100 * n / de` con dos decimales, mitad hacia arriba: lo mismo que `pct()`
+ * en app/services/analytics.py del back (leído el 2026-09-27). `null` si
+ * `de` es 0.
+ */
+function pct(n: number, de: number): number | null {
+  if (!de) return null;
+  return Math.round(((100 * n) / de) * 100 + 1e-9) / 100;
+}
+
+/** Las claves de filtro que el back devuelve en `filters` (nunca `format`). */
+const CLAVES_FILTRO_EMBUDO = [
+  "created_from", "created_to", "agent_id", "listing_id", "property_id", "operation_type",
+] as const;
+
+/**
+ * GET /analytics/funnel. Mismos filtros y errores que el API
+ * (docs/API_CONTRACT.md): 403 sin TEAM_ADMIN, 422 con el rango al revés. Los
+ * porcentajes se calculan de `leads_reached`, así que siempre cuadran; con
+ * denominador 0 van en `null`.
+ */
+function embudoMock(params: URLSearchParams, prueba: PruebaMock | undefined) {
+  if (rolActual(prueba) !== "TEAM_ADMIN") {
+    throw new HomeliticsError("sin_permiso", "Only a TEAM_ADMIN can read the funnel", 403);
+  }
+  const desde = params.get("created_from");
+  const hasta = params.get("created_to");
+  if (desde && hasta && desde > hasta) {
+    throw new HomeliticsError("invalido", "created_from is after created_to", 422);
+  }
+  const agentId = params.get("agent_id");
+  const listingId = params.get("listing_id");
+  const propertyId = params.get("property_id");
+  const operacion = params.get("operation_type");
+
+  const cohorte = registrosAnalitica().filter(r => {
+    const listing = buscarListing(r.listingId);
+    const dia = diaBogotaStr(new Date(r.creado));
+    return (!agentId || r.agentId === agentId)
+      && (!listingId || r.listingId === listingId)
+      && (!propertyId || listing?.property_id === propertyId)
+      && (!operacion || listing?.operation_type === operacion)
+      && (!desde || dia >= desde)
+      && (!hasta || dia <= hasta);
+  });
+
+  const alcanzados = EMBUDO.map((_, i) => cohorte.filter(r => EMBUDO.indexOf(r.alcanzo) >= i).length);
+  const primero = alcanzados[0];
+  return {
+    stages: EMBUDO.map((stage, i) => ({
+      stage,
+      leads_reached: alcanzados[i],
+      pct_from_prev: i === 0 ? null : pct(alcanzados[i], alcanzados[i - 1]),
+      pct_of_first: pct(alcanzados[i], primero),
+    })),
+    lost: cohorte.filter(r => r.perdido).length,
+    filters: Object.fromEntries(
+      CLAVES_FILTRO_EMBUDO.flatMap(k => (params.get(k) ? [[k, params.get(k)!]] : [])),
+    ),
+  };
+}
+
+/** Un float como lo escribe `str()` de Python: `100.0`, `45.5`, `None` → vacío. */
+function floatPython(n: number | null): string {
+  if (n === null) return "";
+  return Number.isInteger(n) ? n.toFixed(1) : String(n);
+}
+
+/**
+ * GET /analytics/funnel?format=csv: el mismo CSV que arma el router del back
+ * (`csv.writer` de Python, líneas con `\r\n`). Cabecera, una fila por etapa y
+ * una fila `LOST` con los perdidos y su porcentaje sobre la primera etapa
+ * (`round(…, 2)`; vacío si no hay leads).
+ */
+function embudoCsvMock(embudo: ReturnType<typeof embudoMock>): string {
+  const filas: (string | number)[][] = [["stage", "leads_reached", "pct_from_prev", "pct_of_first"]];
+  for (const s of embudo.stages) {
+    filas.push([s.stage, s.leads_reached, floatPython(s.pct_from_prev), floatPython(s.pct_of_first)]);
+  }
+  const primero = embudo.stages[0].leads_reached;
+  filas.push(["LOST", embudo.lost, "", floatPython(pct(embudo.lost, primero))]);
+  return filas.map(f => f.join(",") + "\r\n").join("");
+}
+
+/**
+ * GET /analytics/lost-reasons?days=. Solo `days` (1–730, 90 por defecto),
+ * contado sobre la fecha de pérdida; sin 403, como el API.
+ */
+function motivosPerdidaMock(params: URLSearchParams) {
+  const days = Number(params.get("days") ?? 90);
+  if (!Number.isInteger(days) || days < 1 || days > 730) {
+    throw new HomeliticsError("invalido", "days: Input should be between 1 and 730", 422);
+  }
+  const fin = Math.max(Date.now(), Date.parse(HOY_ANALITICA));
+  const inicio = fin - days * 86_400_000;
+  const perdidos = registrosAnalitica()
+    .map(r => r.perdido)
+    .filter((p): p is NonNullable<typeof p> => p !== null && Date.parse(p.en) >= inicio && Date.parse(p.en) <= fin);
+
+  const conteo = new Map<LostReason, number>();
+  for (const p of perdidos) conteo.set(p.motivo, (conteo.get(p.motivo) ?? 0) + 1);
+  return [...conteo.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, n]) => ({ reason, leads: n, pct: pct(n, perdidos.length)! }));
+}
+
 /* ---------- router ---------- */
 
 /**
@@ -843,8 +1149,18 @@ function feedbackDeCitaMock(citaId: string): Feedback[] {
  * `globalThis.__homeliticsMock = { latenciaMs: 2000, falla: "red" }`.
  * `latenciaMs` demora todas las respuestas; `falla` hace fallar las
  * escrituras (no los GET) con ese `kind`. Se borra con `= undefined`.
+ * `sinAgentes: true` hace que GET /agents dé 404, como el API real mientras
+ * la ruta no exista: así se ve el estado "pendiente" de `useAgentes()`.
+ * `rol: "AGENT"` cambia el rol que devuelve GET /me y hace que reasignar dé
+ * 403. Ojo: el layout de (agente) lee /me en el SERVIDOR, así que desde la
+ * consola del navegador solo cambia el POST (sirve para ver el 403 dentro del
+ * modal); para esconder los botones de admin hay que cambiar `agente.role`.
+ * `fallaAnalitica` hace fallar los GET de `/analytics/*` (HU-17) con ese
+ * `kind`: `falla` solo toca escrituras y el embudo solo lee.
  */
-type PruebaMock = { latenciaMs?: number; falla?: ErrorKind };
+type PruebaMock = {
+  latenciaMs?: number; falla?: ErrorKind; fallaAnalitica?: ErrorKind; sinAgentes?: boolean; rol?: Agent["role"];
+};
 
 export async function resolverMock(path: string, method: string = "GET", body?: string): Promise<unknown> {
   const url = new URL(path, "http://mock");
@@ -862,8 +1178,21 @@ export async function resolverMock(path: string, method: string = "GET", body?: 
   }
 
   if (pathname === "/health" && m === "GET") return { status: "ok" };
-  if (pathname === "/me" && m === "GET") return agente;
+  if (pathname === "/me" && m === "GET") return { ...agente, role: rolActual(prueba) };
+  if (pathname === "/agents" && m === "GET") {
+    if (prueba?.sinAgentes) noEncontrado("Not Found");
+    return agentesMock(searchParams);
+  }
   if (pathname === "/listings" && m === "GET") return listingsMock(searchParams);
+
+  if (pathname.startsWith("/analytics/") && prueba?.fallaAnalitica) {
+    throw new HomeliticsError(prueba.fallaAnalitica, `Falla simulada (${prueba.fallaAnalitica}) en ${m} ${pathname}`);
+  }
+  if (pathname === "/analytics/funnel" && m === "GET") {
+    const embudo = embudoMock(searchParams, prueba);
+    return searchParams.get("format") === "csv" ? embudoCsvMock(embudo) : embudo;
+  }
+  if (pathname === "/analytics/lost-reasons" && m === "GET") return motivosPerdidaMock(searchParams);
 
   if ((match = pathname.match(/^\/listings\/([^/]+)$/)) && m === "GET") {
     return listingPorIdMock(match[1]);
@@ -887,6 +1216,9 @@ export async function resolverMock(path: string, method: string = "GET", body?: 
     if (m === "GET") return transicionesMock(match[1]);
     if (m === "POST") return moverLeadMock(match[1], cuerpo);
   }
+  if ((match = pathname.match(/^\/leads\/([^/]+)\/reassign$/)) && m === "POST") {
+    return reasignarLeadMock(match[1], cuerpo, prueba);
+  }
   if ((match = pathname.match(/^\/leads\/([^/]+)\/interactions$/))) {
     if (m === "GET") return interaccionesDelLeadMock(match[1]);
     if (m === "POST") return crearInteraccionMock(match[1], cuerpo);
@@ -906,4 +1238,5 @@ export const MOCK_IDS = {
   AGENT_ID, LISTING_ID, CLIENT_ID, LEAD_ID, LEAD_ID_VACIO,
   APPOINTMENT_ID, APPOINTMENT_ID_CANCELADA, APPOINTMENT_ID_NO_COMPLETADA, APPOINTMENT_ID_COMPLETADA,
   LEAD_ID_NEGOCIANDO, LEAD_ID_GANADO, LEAD_ID_PERDIDO, PROPERTY_ID_DOBLE,
+  AGENT_ID_PAULA, AGENT_ID_ANDRES, AGENT_ID_INACTIVO,
 };

@@ -262,6 +262,11 @@ export const CreateTransitionBody = z.object({
   }
 });
 
+/** Cuerpo de POST /leads/{id}/reassign (`ReassignRequest`, HU-08). */
+export const ReassignBody = z.object({
+  to_agent_id: z.string().uuid("Elige un agente de la lista."),
+});
+
 export const CreateFeedbackBody = z.object({
   submitted_by: SubmittedBy,
   interest_score: z.number().int().min(1).max(5).optional(),
@@ -293,7 +298,40 @@ export const FeedbackSchema = z.object({
   created_at: instant,
 });
 
+/* ---------- analítica (HU-17) ---------- */
+
+/**
+ * Una fila de GET /analytics/funnel (`FunnelStageOut`). Los dos porcentajes
+ * son obligatorios pero pueden venir en `null` en cualquier fila:
+ * /openapi.json no dice cuándo (docs/API_CONTRACT.md).
+ */
+export const FunnelStageSchema = z.object({
+  stage: Stage,
+  leads_reached: z.number().int(),
+  pct_from_prev: z.number().nullable(),
+  pct_of_first: z.number().nullable(),
+});
+
+/** GET /analytics/funnel (`FunnelOut`). `filters` es el eco de la query. */
+export const FunnelSchema = z.object({
+  stages: z.array(FunnelStageSchema),
+  lost: z.number().int(),
+  filters: z.record(z.string(), z.string()),
+});
+
+/** Una fila de GET /analytics/lost-reasons (`LostReasonOut`). */
+export const LostReasonStatSchema = z.object({
+  reason: LostReason,
+  leads: z.number().int(),
+  pct: z.number(),
+});
+
 /* ---------- tipos ---------- */
+
+export type FunnelStage = z.infer<typeof FunnelStageSchema>;
+export type Funnel = z.infer<typeof FunnelSchema>;
+export type LostReasonStat = z.infer<typeof LostReasonStatSchema>;
+export type OperationType = z.infer<typeof OperationType>;
 
 export type Agent = z.infer<typeof AgentSchema>;
 export type Listing = z.infer<typeof ListingSchema>;

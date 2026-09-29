@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import { useEsAdmin } from "@/features/agentes/AgenteActual";
+import { NombreAgente } from "@/features/agentes/components/NombreAgente";
 import { fechaHoraLarga, formatPrecio, tiempoRelativo } from "@/lib/format";
 import { textoInteraccion } from "@/lib/lineaTiempo";
 import type { LastInteraction, LeadCard } from "@/lib/schemas";
@@ -22,6 +26,9 @@ const ETIQUETA_TIPO: Record<LastInteraction["type"], string> = {
  *
  * `draggable={false}`: el arrastre nativo de un enlace dispara
  * `pointercancel` y corta el de @dnd-kit a mitad de camino.
+ *
+ * Al admin le dice quién atiende el lead (HU-08). Sin la lista de agentes
+ * (GET /agents pendiente) `NombreAgente` no pinta nada y no ocupa espacio.
  */
 export function TarjetaLead({
   lead,
@@ -34,6 +41,7 @@ export function TarjetaLead({
   /** `aria-describedby` con las instrucciones de arrastre por teclado. */
   descripcion?: string;
 }) {
+  const esAdmin = useEsAdmin();
   const ultima = lead.last_interaction;
   // El "Lost: PRICE" que deja el API se lee "Perdido: Precio" (vista de perdidos).
   const texto = ultima ? textoInteraccion(ultima) : null;
@@ -62,6 +70,9 @@ export function TarjetaLead({
         </span>
         <span className="text-neutral-900">{formatPrecio(lead.asking_price)}</span>
       </p>
+      {esAdmin && (
+        <NombreAgente agentId={lead.agent_id} className="mt-1.5 block text-xs text-neutral-500" />
+      )}
 
       <div className="mt-3 border-t border-neutral-100 pt-2 text-xs text-neutral-500">
         {ultima ? (

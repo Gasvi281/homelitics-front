@@ -1013,3 +1013,165 @@ perder desde el tablero sin arrastrar; en el detalle ya está el botón).
 Con mocks, lo perdido en el navegador no aparece en `?etapa=LOST` porque esa
 página la precarga la copia del servidor (anotado en `lib/mock/README.md`);
 con el API real no pasa. Falta probarlo contra el API real.
+
+## 2026-09-27 — Preparación de HU-08 (reasignar) y HU-17 (embudo): piezas compartidas
+
+Hecho: `docs/API_CONTRACT.md` documenta, verificados contra `/openapi.json`,
+`POST /leads/{id}/reassign`, `GET /analytics/funnel` y
+`GET /analytics/lost-reasons` (salen de la §7), y una §3 bis "PROPUESTO — aún
+no existe en el API" con `GET /agents` (confirmado: el API real responde 404).
+Bloqueo 7 en `docs/SPRINT_LINEA2.md`. `api.agentes({active?})` en el núcleo.
+Mock: 4 agentes (Hernando TEAM_ADMIN, Paula y Andrés activos, Carlos
+inactivo) y leads del tablero repartidos; `/slots` acepta cualquier agente de
+la agencia y `agent_name` de la cita sale de su agente.
+`features/agentes/`: `useAgentes()` (disponible | pendiente | cargando |
+error), `SelectorAgente` y `NombreAgente`. `lib/agente-actual.ts`
+(`cache()` sobre `/me`) + `AgenteActualProvider`/`useAgenteActual`/
+`useEsAdmin` en `features/agentes/AgenteActual.tsx`; el layout de (agente)
+muestra "Embudo" solo a TEAM_ADMIN.
+
+Decidido: el 404 de `/agents` se atrapa en `queryFn` y se guarda como valor
+"pendiente", no como error: así no hay reintentos ni relecturas por montaje
+(TODO visible en `useAgentes()` para quitarlo). Una sola petición trae todos
+los agentes; el selector filtra activos y excluidos del caché. Se agregó el
+estado "cargando" a los tres pedidos. Si `/me` falla, el layout sigue y solo
+esconde lo de admin. Nuevo interruptor de mock `{ sinAgentes: true }`.
+
+Verificado con `USE_MOCKS=true` (restaurado) en una página temporal ya
+borrada: selector con excluidos y solo activos, nombres por id, estado
+pendiente deshabilitado con `aria-describedby`, "Embudo" oculto con rol AGENT.
+`tsc` y `eslint` limpios.
+
+Pendiente: `/embudo` todavía no existe (el enlace da 404 hasta HU-17);
+`api.reasignar()`, `api.embudo()`, `api.motivosPerdida()` y sus esquemas zod
+van con la tarea de cada pantalla.
+
+## 2026-09-27 — Reasignar un lead (HU-08)
+
+**Hecho.** `api.reasignarLead()` (`POST /leads/{id}/reassign`, `LeadSchema`,
+cuerpo validado con `ReassignBody` antes de enviar) y su mock (403 / 404 /
+422 / 409 inactivo o mismo dueño; cambia `agent_id` en memoria).
+`features/reasignar/`: `useReasignarLead()` + `mensajeErrorReasignar()`,
+`ModalReasignar` (`<dialog>` como ModalPerdido, nota de "sin notificación y
+tareas con el anterior") y `ReasignarLead` (botón + modal). Puntos de
+entrada solo para `useEsAdmin()`: "A cargo de …" y "Reasignar" en el
+detalle (no en leads cerrados), el dueño en `TarjetaLead`, y el filtro
+"Agente" del tablero (`?agente=` → `agent_id`).
+
+Decidido: no optimista (solo cambia el dueño, no la columna); al terminar
+invalida `PREFIJO_TABLERO` y `prefijoLead(id)`, y con 409 relee la lista de
+agentes. Con 403 el modal no deja reintentar. El filtro ofrece también a los
+inactivos (pueden conservar leads); el selector del modal no. Nuevas props:
+`NombreAgente.prefijo` y `SelectorAgente.autoFocus`. Nuevo interruptor de
+mock `{ rol: "AGENT" }`. Verificado en /openapi.json que reasignar no
+escribe interacción: `textoInteraccion()` no cambia.
+
+Verificado con `USE_MOCKS=true` (restaurado): casos del mock en
+`/api/mocktest`; reasignación ok (el detalle pasa a "A cargo de Andrés
+Montoya"); 409 simulado con reintento; 403 sin reintento; "pendiente" con
+selector y botón deshabilitados y explicados; rol AGENT sin botón, sin
+nombres ni filtro. `tsc` y `eslint` limpios.
+
+Pendiente: contra el API real depende de `GET /agents` (bloqueo 7). Con
+mocks, el navegador y el servidor tienen memorias separadas: una
+reasignación hecha en el navegador se pierde al recargar la página.
+
+## 2026-09-27 — Embudo de conversión (HU-17)
+
+**Hecho.** `FunnelSchema` y `LostReasonStatSchema` en `lib/schemas.ts`;
+`api.embudo()` (`GET /analytics/funnel`, rechaza el rango al revés sin
+llamar, con la misma guarda que `leads()`, ahora `rechazarRangoAlReves`) y
+`api.motivosPerdida(days)`. `lib/filtros-url.ts` saca de
+`features/tablero-leads/claves.ts` la lectura de parámetros y fechas; el
+tablero la usa sin cambiar de comportamiento. `features/embudo/`: `claves.ts`
+(filtros, `claveEmbudo`, `claveMotivos`, `etapaConMayorCaida`), `hooks.ts`
+(`useEmbudo`, `useMotivosPerdida`; no reintentan 403 ni 422),
+`FiltrosEmbudo`, `Embudo` (estados), `GraficaEmbudo`, `TablaConversion` y
+`MotivosPerdida`. Ruta `app/(agente)/embudo/` con `page.tsx` y
+`loading.tsx`. `formatPorcentaje()` en `lib/format.ts`.
+
+Decidido: si `/me` dice que no es `TEAM_ADMIN`, la página muestra el aviso y
+no llama a `/analytics/*`; si `/me` falla, se intenta igual y el 403 se
+pinta como "sin permiso". Mayor caída = menor `pct_from_prev` no nulo (en
+empate, la más temprana); la gráfica va `aria-hidden` y la tabla es la
+versión accesible. Motivos con selector propio (estado local, no URL). Mocks
+de analítica sobre los 14 leads (vía su log de transiciones) más una cohorte
+histórica determinista de ~120 leads solo para analítica; nuevo interruptor
+`{ fallaAnalitica }`.
+
+Verificado con `USE_MOCKS=true` (segunda instancia en el 3001, ya apagada):
+`/api/mocktest` con cada filtro, vacío, rango al revés (local) y días
+30/90/180/0; en pantalla, filtros de operación + agente por formulario y de
+propiedad y fechas por URL (renderizado ya en el servidor), rango al revés
+frenado en el formulario y en la URL, vacío, motivos cambiando sin tocar la
+URL, error y reintento en los dos bloques, y rol `AGENT` sin enlace ni
+llamadas. `tsc` y `eslint` limpios. Contra el API real (servidor del 3000):
+el demo es `AGENT` y `/analytics/funnel` da 403; `/lost-reasons` responde.
+
+Pendiente: el filtro por agente depende de `GET /agents` (bloqueo 7). Ojo al
+probar: dos `next dev` en el mismo repo comparten `.next` y al recompilar se
+pisan los manifiestos (404/500 raros); usar uno a la vez.
+
+## 2026-09-27 — Exportar el embudo en CSV y PDF (HU-17 AC3)
+
+**Hecho.** `crearPedir` devuelve ahora `{ pedir, pedirTexto }`
+(`Transporte`) y `crearApi` recibe los dos; `pedirTexto` comparte con
+`pedir` el envío y la traducción de errores, sin zod. `api.embudoCsv()`
+pide `format=csv` y rechaza el rango al revés como `embudo()`. El proxy
+reenvía `Content-Disposition`. Mock: `embudoCsvMock` arma el CSV como el
+back. `features/embudo/components/ExportarEmbudo.tsx` (botones CSV y PDF
+junto al título) y `features/embudo/pdf.ts` (jspdf + jspdf-autotable,
+cargado con `import()` al hacer clic). `nombreArchivoEmbudo()` en
+`claves.ts`; `diaLargo()` y `fechaHoraConAnio()` en `lib/format.ts`.
+`useEmbudo` acepta `enabled`. Dependencias nuevas con versión fija:
+`jspdf@4.2.1`, `jspdf-autotable@5.0.8` (en CLAUDE.md).
+
+Decidido: el formato del CSV, el redondeo y el eco de `filters` se leyeron
+en el código del back (el repo del API es público), no en /openapi.json.
+Eso corrigió el mock de la tarea anterior: redondeaba a 1 decimal (el back
+usa 2, mitad hacia arriba) y devolvía en `filters` cualquier parámetro. El
+nombre del archivo lo arma el front con el rango
+(`embudo_2026-09-01_2026-09-30.csv`, `embudo_todo.pdf`…), no el
+`funnel.csv` del back. El PDF usa el JSON en caché de `useEmbudo`; los
+filtros salen de `filters` de la respuesta, con nombres de agente y
+propiedad cuando se conocen. El API no expone el nombre de la agencia: el
+PDF pone quién lo generó y el id de la agencia. Los botones se deshabilitan
+con el embudo cargando o en placeholder, sin leads, con error o con el
+rango al revés.
+
+Verificado con `USE_MOCKS=true` en una copia del repo (para no pisar el
+`.next` del servidor del 3000; ya borrada): CSV fila por fila igual a la
+tabla de la pantalla, con `\r\n` y el nombre con el rango; texto del PDF
+(título, fecha en Bogotá, filtros, mayor caída, tabla y perdidos) igual a la
+pantalla, en WinAnsi ("•" y "—" bien codificados); una descarga por clic;
+botones apagados con vacío y rango al revés; error del CSV con
+`{ fallaAnalitica: "red" }` y se limpia al reintentar. `tsc`, `eslint` y
+`next build` limpios; `/embudo` queda en 4,9 kB (jspdf fuera del bundle).
+
+Pendiente: el estado "cargando" de los botones al cambiar de filtro casi no
+se ve con mocks (la página llega ya hidratada). No se pudo mirar el PDF
+renderizado en el panel del navegador (el visor no pinta blobs); se revisó
+su contenido y codificación.
+
+## 2026-09-27 — Cierre de HU-08 y HU-17 (estructura), prueba contra el API real
+
+**Hecho.** Con `USE_MOCKS=false` y solo lecturas (no se reasignó ningún
+lead): `/embudo` con rango, operación y agente, y `format=csv`, dan 403
+`"This action requires the TEAM_ADMIN role"` porque el agente demo es
+`AGENT`; la pantalla muestra el aviso de "solo administradores" y la consola
+queda limpia. `GET /agents` y `GET /agents?active=true` dan 404 por el proxy
+y la ruta sigue fuera de `/openapi.json`. `GET /analytics/lost-reasons?days=90`
+respondió con datos reales (6 motivos, `pct` con 2 decimales) y pasa por
+`LostReasonStatSchema`. `/tablero` carga con datos reales y sin errores.
+
+Decidido: no se tocó `FunnelSchema`. Sin token admin no hay respuesta real
+con qué compararlo; se volvió a comparar con `FunnelOut`/`FunnelStageOut` de
+`/openapi.json` y coinciden. La checklist "Cuando exista GET /agents" quedó en
+`docs/SPRINT_LINEA2.md`, bloqueo 7.
+
+Pendiente: ver el embudo y el CSV reales con un `TEAM_ADMIN` (login de la
+etapa 2 o un demo admin en `.env.local`). El estado "pendiente" de
+`useAgentes()` solo se ha visto con mocks: con el demo `AGENT` ninguna
+pantalla pide `/agents` (todo está detrás de `useEsAdmin()`). Con un admin,
+Chrome anotará el 404 como "Failed to load resource" en la consola; eso lo
+hace el navegador, no la app.

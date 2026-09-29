@@ -8,9 +8,11 @@ import {
   type FiltrosTablero as Filtros,
 } from "../claves";
 import { usePropiedades } from "../hooks";
+import { useEsAdmin } from "@/features/agentes/AgenteActual";
+import { SelectorAgente } from "@/features/agentes/components/SelectorAgente";
 
 /** Nombre del parámetro en la URL por cada filtro. */
-const PARAMS = ["etapa", "propiedad", "desde", "hasta"] as const satisfies readonly (keyof Filtros)[];
+const PARAMS = ["etapa", "propiedad", "agente", "desde", "hasta"] as const satisfies readonly (keyof Filtros)[];
 
 /**
  * Filtros del tablero (tarea 2.9 — HU-06 AC3). La fuente de verdad es la URL:
@@ -21,6 +23,10 @@ const PARAMS = ["etapa", "propiedad", "desde", "hasta"] as const satisfies reado
  * "Ver perdidos" (2.12 — HU-09 AC2) cambia a `?etapa=LOST` conservando los
  * demás filtros; en esa vista el selector de etapa ofrece Ganado y Perdido
  * (sin "Todas": sin etapa se vuelve al tablero activo).
+ *
+ * "Agente" (HU-08) solo se le muestra al admin: `?agente=` → `agent_id`.
+ * Ofrece también a los inactivos, que pueden conservar leads. Sin GET
+ * /agents, SelectorAgente queda deshabilitado y lo explica.
  */
 export function FiltrosTablero({ filtros }: { filtros: Filtros }) {
   const router = useRouter();
@@ -30,6 +36,7 @@ export function FiltrosTablero({ filtros }: { filtros: Filtros }) {
   const [valores, setValores] = useState<Filtros>(filtros);
   const [error, setError] = useState<string | null>(null);
   const propiedades = usePropiedades();
+  const esAdmin = useEsAdmin();
 
   function cambiar(clave: keyof Filtros, valor: string) {
     setValores(v => ({ ...v, [clave]: valor || undefined }));
@@ -82,7 +89,11 @@ export function FiltrosTablero({ filtros }: { filtros: Filtros }) {
     // noValidate: `min`/`max` de las fechas solo guían el selector; si el
     // navegador validara, frenaría el envío con su globo y no con este mensaje.
     <form onSubmit={aplicar} noValidate className="mb-6 rounded-lg border border-neutral-200 p-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr]">
+      <div
+        className={`grid gap-3 sm:grid-cols-2 ${
+          esAdmin ? "lg:grid-cols-[2fr_1.5fr_1fr_1fr_1fr]" : "lg:grid-cols-[2fr_1fr_1fr_1fr]"
+        }`}
+      >
         <label className="block text-sm font-medium text-neutral-700">
           Propiedad
           <select
@@ -104,6 +115,14 @@ export function FiltrosTablero({ filtros }: { filtros: Filtros }) {
             </span>
           )}
         </label>
+
+        {esAdmin && (
+          <SelectorAgente
+            valor={valores.agente ?? ""}
+            alCambiar={id => cambiar("agente", id)}
+            opcionVacia="Todos los agentes"
+          />
+        )}
 
         <label className="block text-sm font-medium text-neutral-700">
           Etapa

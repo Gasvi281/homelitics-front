@@ -12,11 +12,11 @@ import { z } from "zod";
 import { HomeliticsError } from "./errores";
 import {
   AgentSchema, AppointmentSchema, AppointmentDetailSchema, FeedbackSchema,
-  InteractionSchema, LeadCardSchema, LeadSchema, ListingSchema, SlotsSchema,
-  TaskSchema, TransitionSchema,
+  FunnelSchema, InteractionSchema, LeadCardSchema, LeadSchema, ListingSchema,
+  LostReasonStatSchema, SlotsSchema, TaskSchema, TransitionSchema,
   CreateAppointmentBody, CreateFeedbackBody, CreateInteractionBody,
-  CreateTransitionBody, PatchAppointmentBody,
-  type Stage,
+  CreateTransitionBody, PatchAppointmentBody, ReassignBody,
+  type OperationType, type Stage,
 } from "./schemas";
 
 /** Filtros de GET /leads. Todos opcionales; ver docs/API_CONTRACT.md §3. */
@@ -36,6 +36,31 @@ export type FiltrosLeads = {
   limit?: number;
   offset?: number;
 };
+
+/**
+ * Filtros de GET /analytics/funnel (HU-17) que usa la pantalla. El API
+ * acepta también `listing_id` y `format`; ver docs/API_CONTRACT.md §3.
+ */
+export type FiltrosEmbudoApi = {
+  /** Día `YYYY-MM-DD`, inclusivo, de creación del lead. */
+  created_from?: string;
+  /** Día `YYYY-MM-DD`, inclusivo, de creación del lead. */
+  created_to?: string;
+  agent_id?: string;
+  /** El inmueble: trae SALE y RENT del mismo. */
+  property_id?: string;
+  operation_type?: OperationType;
+};
+
+/**
+ * Un rango al revés se rechaza sin llamar al API (que daría 422). Las fechas
+ * `YYYY-MM-DD` se comparan bien como texto.
+ */
+function rechazarRangoAlReves(desde?: string, hasta?: string) {
+  if (desde && hasta && desde > hasta) {
+    throw new HomeliticsError("invalido", "La fecha inicial es posterior a la final.", 422);
+  }
+}
 
 export type Pedir = <T>(path: string, schema: z.ZodType<T>, init?: RequestInit) => Promise<T>;
 
@@ -72,8 +97,18 @@ export function query(q: Record<string, string | number | boolean | undefined>):
 }
 
 /**
- * Arma la función `pedir()` de una de las dos mitades. `urlPara` decide el
- * destino real (API directo o proxy) y `credenciales` de dónde sale el
+ * Para las respuestas que no son JSON (hoy solo `GET /analytics/funnel?format=csv`).
+ * No hay zod que aplique: devuelve el cuerpo tal cual. Los errores sí llegan
+ * en JSON y se traducen igual que en `pedir()`.
+ */
+export type PedirTexto = (path: string, init?: RequestInit) => Promise<string>;
+
+/** Lo que cada mitad le entrega a `crearApi`: las dos formas de pedir. */
+export type Transporte = { pedir: Pedir; pedirTexto: PedirTexto };
+
+/**
+ * Arma `pedir()` y `pedirTexto()` de una de las dos mitades. `urlPara` decide
+ * el destino real (API directo o proxy) y `credenciales` de dónde sale el
  * header `Authorization`, si aplica. Ninguna de las dos cosas vive aquí:
  * eso es justo lo que cambia entre servidor y navegador.
  *
@@ -87,22 +122,18 @@ export function crearPedir(opts: {
   usarMocks: boolean;
   urlPara: (path: string) => string;
   credenciales: () => Promise<Record<string, string>>;
-}): Pedir {
-  return async function pedir<T>(
-    path: string,
-    schema: z.ZodType<T>,
-    init: RequestInit = {},
-  ): Promise<T> {
-    if (opts.usarMocks) {
-      const { resolverMock } = await import("./mock");
-      const valor = await resolverMock(
-        path,
-        init.method ?? "GET",
-        typeof init.body === "string" ? init.body : undefined,
-      );
-      return schema.parse(valor);
-    }
+}): Transporte {
+  async function delMock(path: string, init: RequestInit): Promise<unknown> {
+    const { resolverMock } = await import("./mock");
+    return resolverMock(
+      path,
+      init.method ?? "GET",
+      typeof init.body === "string" ? init.body : undefined,
+    );
+  }
 
+  /** fetch + traducción de errores; devuelve la respuesta ya `ok`. */
+  async function enviar(path: string, init: RequestInit): Promise<Response> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...(await opts.credenciales()),
@@ -118,6 +149,28 @@ export function crearPedir(opts: {
     }
 
     if (!res.ok) throw await traducirError(res);
+    return res;
+  }
+
+  async function pedirTexto(path: string, init: RequestInit = {}): Promise<string> {
+    if (opts.usarMocks) {
+      const valor = await delMock(path, init);
+      if (typeof valor !== "string") {
+        throw new HomeliticsError("servidor", `El mock de ${path} no devolvió texto.`);
+      }
+      return valor;
+    }
+    return (await enviar(path, init)).text();
+  }
+
+  async function pedir<T>(
+    path: string,
+    schema: z.ZodType<T>,
+    init: RequestInit = {},
+  ): Promise<T> {
+    if (opts.usarMocks) return schema.parse(await delMock(path, init));
+
+    const res = await enviar(path, init);
     if (res.status === 204) return schema.parse(undefined);
 
     const json = await res.json();
@@ -131,16 +184,27 @@ export function crearPedir(opts: {
       );
     }
     return parsed.data;
-  };
+  }
+
+  return { pedir, pedirTexto };
 }
 
 /** La lista de operaciones del API que usa la línea 2. Ver docs/API_CONTRACT.md. */
-export function crearApi(pedir: Pedir) {
+export function crearApi({ pedir, pedirTexto }: Transporte) {
   return {
     /** Despierta el servicio y comprueba conectividad. Sin token. */
     salud: () => pedir("/health", z.object({ status: z.string() })),
 
     yo: () => pedir("/me", AgentSchema),
+
+    /**
+     * HU-08 y HU-17. **PROPUESTO: GET /agents todavía no existe en el API**
+     * (docs/API_CONTRACT.md §3 bis): contra el API real hoy responde 404, y
+     * `useAgentes()` lo muestra como "pendiente". Excluye `AI_AGENT`, así que
+     * `AgentSchema` se queda en `AGENT | TEAM_ADMIN`.
+     */
+    agentes: (q: { active?: boolean } = {}) =>
+      pedir(`/agents?${query(q)}`, z.array(AgentSchema)),
 
     listings: (q: { city?: string; limit?: number } = {}) =>
       pedir(`/listings?${query(q)}`, z.array(ListingSchema)),
@@ -152,14 +216,40 @@ export function crearApi(pedir: Pedir) {
     /**
      * Tablero (HU-06): una tarjeta por lead, `updated_at` descendente. Un
      * rango de fechas al revés se rechaza aquí, sin llamar al API (que daría
-     * 422): las fechas `YYYY-MM-DD` se comparan bien como texto.
+     * 422).
      */
     leads: async (q: FiltrosLeads = {}) => {
-      if (q.created_from && q.created_to && q.created_from > q.created_to) {
-        throw new HomeliticsError("invalido", "La fecha inicial es posterior a la final.", 422);
-      }
+      rechazarRangoAlReves(q.created_from, q.created_to);
       return pedir(`/leads?${query(q)}`, z.array(LeadCardSchema));
     },
+
+    /**
+     * HU-17. De los leads CREADOS en la ventana, cuántos llegaron a cada etapa
+     * del embudo, más los perdidos. Solo `TEAM_ADMIN` (403 → `sin_permiso`).
+     * Un rango al revés se rechaza aquí, igual que en `leads()`.
+     */
+    embudo: async (q: FiltrosEmbudoApi = {}) => {
+      rechazarRangoAlReves(q.created_from, q.created_to);
+      return pedir(`/analytics/funnel?${query(q)}`, FunnelSchema);
+    },
+
+    /**
+     * HU-17 AC3. Las mismas filas que `embudo()`, en CSV armado por el back:
+     * `stage,leads_reached,pct_from_prev,pct_of_first` y una fila final
+     * `LOST`. El PDF no existe en el API: lo arma el front.
+     */
+    embudoCsv: async (q: FiltrosEmbudoApi = {}) => {
+      rechazarRangoAlReves(q.created_from, q.created_to);
+      return pedirTexto(`/analytics/funnel?${query({ ...q, format: "csv" })}`);
+    },
+
+    /**
+     * HU-17. Perdidos de los últimos `days` días (sobre la fecha de pérdida),
+     * por motivo, más común primero. OJO: solo acepta `days`, no los filtros
+     * del embudo.
+     */
+    motivosPerdida: (days: number) =>
+      pedir(`/analytics/lost-reasons?${query({ days })}`, z.array(LostReasonStatSchema)),
 
     /** Log de etapas del lead, del más viejo al más nuevo. */
     transiciones: (leadId: string) =>
@@ -182,6 +272,27 @@ export function crearApi(pedir: Pedir) {
         );
       }
       return pedir(`/leads/${leadId}/transitions`, TransitionSchema, {
+        method: "POST",
+        body: JSON.stringify(valido.data),
+      });
+    },
+
+    /**
+     * HU-08. Pasa el lead a otro agente; responde el `LeadOut` con el
+     * `agent_id` nuevo. Solo `TEAM_ADMIN` (403 si no); 404 si el destino no es
+     * de la agencia; 409 si está desactivado o ya es el dueño. No escribe
+     * interacción: no aparece en el historial (docs/API_CONTRACT.md).
+     */
+    reasignarLead: async (leadId: string, body: z.input<typeof ReassignBody>) => {
+      const valido = ReassignBody.safeParse(body);
+      if (!valido.success) {
+        throw new HomeliticsError(
+          "invalido",
+          valido.error.issues.map(i => i.message).join("; "),
+          422,
+        );
+      }
+      return pedir(`/leads/${leadId}/reassign`, LeadSchema, {
         method: "POST",
         body: JSON.stringify(valido.data),
       });

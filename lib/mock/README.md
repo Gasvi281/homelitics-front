@@ -9,7 +9,7 @@ Datos base del prototipo, para que las capturas y la demo coincidan:
 
 - Propiedad: Manila 206, Medellín. Transversal 80A # 81-57 apto 206.
   83,80 m², 1 habitación, 1 baño, `asking_price: "650137717.29"`.
-- Agente: Hernando Carrillo, rol `TEAM_ADMIN`.
+- Agente: Hernando Carrillo, rol `TEAM_ADMIN`. Hay tres más en su agencia (ver tabla de abajo).
 - Cliente: Laura Restrepo. Primer contacto el 1 de septiembre por Telegram.
 - Lead en etapa `VISIT_SCHEDULED`.
 - Cita el jueves 17 a las 10:30 de Bogotá, o sea `2026-09-17T15:30:00Z`.
@@ -36,6 +36,15 @@ fijos (exportados como `MOCK_IDS`):
 | Mover etapa (HU-06) | `LEAD_ID_NEGOCIANDO` puede ir a `WON` o `LOST`; cualquier otro destino da 409. |
 | Lead terminal | `LEAD_ID_GANADO` (WON) y `LEAD_ID_PERDIDO` (LOST): mover cualquiera da 409. |
 | `LOST` sin motivo, o motivo con otra etapa | 422, igual que el API. |
+| Agentes de la agencia (HU-08, HU-17) | `GET /agents` (**propuesto, no existe en el API real**): Hernando Carrillo (`TEAM_ADMIN`, el demo), Paula Gómez y Andrés Montoya (`AGENT`, activos) y Carlos Úsuga (`AGENT`, inactivo; no sale con `?active=true`). Los leads del tablero están repartidos entre los cuatro; Laura y el lead vacío siguen siendo del demo porque las citas semilla son suyas. |
+| `GET /agents` todavía sin publicar | `globalThis.__homeliticsMock = { sinAgentes: true }` en la consola del navegador: la ruta da 404, igual que el API real hoy, y `useAgentes()` queda en "pendiente". |
+| Reasignar (HU-08) | `POST /leads/{id}/reassign`: 409 si el destino es `AGENT_ID_INACTIVO` o el dueño actual, 404 si el id no es de un agente, 403 si el rol no es `TEAM_ADMIN`; si no, cambia `agent_id` en memoria. No escribe interacción, igual que el API. |
+| Embudo (HU-17) | `GET /analytics/funnel` se calcula sobre los 14 leads del tablero (hasta dónde llegaron sale de su log de transiciones, así que mover uno cambia el embudo) **más una cohorte histórica de ~120 leads que solo existe para analítica** y no sale en `GET /leads`. La caída clara está en Visitó → Negociando (~30 %); el arriendo convierte mejor a visita, Paula negocia más y Andrés cierra menos, así que cada filtro cambia la foto. Los porcentajes salen de `leads_reached` con dos decimales, mitad hacia arriba, y van en `null` con denominador 0, como `pct()` del back; `filters` solo repite las claves de filtro (nunca `format`). 403 sin `TEAM_ADMIN`, 422 con el rango al revés. |
+| Embudo en CSV (HU-17) | `GET /analytics/funnel?format=csv`: el mismo CSV que arma el back (`csv.writer`, líneas con `\r\n`, `100.0`, celda vacía para `null`, fila final `LOST`). Ver docs/API_CONTRACT.md. |
+| Embudo vacío | `created_from=2030-01-01`: todas las etapas en 0 y porcentajes en `null`. |
+| Motivos de pérdida (HU-17) | `GET /analytics/lost-reasons?days=`: misma cohorte, contada sobre la fecha de pérdida hacia atrás desde un "hoy" fijo (`2026-09-27`, o ahora si es más tarde). 422 con `days` fuera de 1–730. Sin 403, como el API. |
+| Error en analítica | `globalThis.__homeliticsMock = { fallaAnalitica: "red" }` (o `"servidor"`): los GET de `/analytics/*` fallan con ese `kind`. `falla` no sirve aquí porque solo toca escrituras. Ojo: la página precarga en el servidor, así que desde la consola solo se ve en lo que el navegador vuelve a pedir (cambiar los días de motivos, reintentar). |
+| Usuario sin permiso de admin | `globalThis.__homeliticsMock = { rol: "AGENT" }` en la consola del navegador: reasignar da 403 (el modal lo dice). Los botones siguen visibles porque el layout lee `/me` en el servidor; para esconderlos hay que cambiar `role` de `agente` en `lib/mock/index.ts`. |
 
 Para lo que los datos solos no producen (una escritura que falla por red, un
 409 que el front no pudo prever, una respuesta lenta para ver estados

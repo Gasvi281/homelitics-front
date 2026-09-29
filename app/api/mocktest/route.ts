@@ -30,5 +30,33 @@ export async function GET() {
     await probar("ya ganado", () => api.moverLead(MOCK_IDS.LEAD_ID_GANADO, { to_stage: "LOST", lost_reason: "OTHER" })),
     await probar("mover ok", () => api.moverLead(MOCK_IDS.LEAD_ID_NEGOCIANDO, { to_stage: "WON", note: "Firmó la promesa" })),
     await probar("ya no está activo", async () => (await api.leads({ active: true })).some(l => l.id === MOCK_IDS.LEAD_ID_NEGOCIANDO)),
+    // HU-08. `LEAD_ID` es del agente demo (`AGENT_ID`).
+    await probar("reasignar al dueño", () => api.reasignarLead(MOCK_IDS.LEAD_ID, { to_agent_id: MOCK_IDS.AGENT_ID })),
+    await probar("reasignar a inactivo", () => api.reasignarLead(MOCK_IDS.LEAD_ID, { to_agent_id: MOCK_IDS.AGENT_ID_INACTIVO })),
+    await probar("reasignar a desconocido", () => api.reasignarLead(MOCK_IDS.LEAD_ID, { to_agent_id: "a10a1000-0000-4000-8000-00000000ffff" })),
+    await probar("reasignar sin uuid", () => api.reasignarLead(MOCK_IDS.LEAD_ID, { to_agent_id: "" })),
+    await probar("reasignar ok", async () => (await api.reasignarLead(MOCK_IDS.LEAD_ID, { to_agent_id: MOCK_IDS.AGENT_ID_PAULA })).agent_id === MOCK_IDS.AGENT_ID_PAULA),
+    await probar("sin interacción nueva", async () => (await api.interacciones(MOCK_IDS.LEAD_ID)).length),
+    await probar("devolver al demo", async () => (await api.reasignarLead(MOCK_IDS.LEAD_ID, { to_agent_id: MOCK_IDS.AGENT_ID })).agent_id),
+    // HU-17. Cada fila: [etapa, leads_reached, pct_from_prev, pct_of_first].
+    ...(await Promise.all(([
+      ["embudo sin filtros", {}],
+      ["embudo septiembre", { created_from: "2026-09-01", created_to: "2026-09-30" }],
+      ["embudo inmueble doble", { property_id: MOCK_IDS.PROPERTY_ID_DOBLE }],
+      ["embudo venta", { operation_type: "SALE" }],
+      ["embudo arriendo", { operation_type: "RENT" }],
+      ["embudo Paula", { agent_id: MOCK_IDS.AGENT_ID_PAULA }],
+      ["embudo Andrés", { agent_id: MOCK_IDS.AGENT_ID_ANDRES }],
+      ["embudo vacío", { created_from: "2030-01-01" }],
+      ["embudo fechas al revés", { created_from: "2026-09-10", created_to: "2026-09-01" }],
+    ] as const).map(([nombre, f]) => probar(nombre, async () => {
+      const e = await api.embudo(f);
+      return { perdidos: e.lost, etapas: e.stages.map(s => [s.stage, s.leads_reached, s.pct_from_prev, s.pct_of_first]) };
+    })))),
+    await probar("embudo csv", () => api.embudoCsv({ created_from: "2026-09-01", created_to: "2026-09-30" })),
+    await probar("embudo csv vacío", () => api.embudoCsv({ created_from: "2030-01-01" })),
+    await probar("embudo csv fechas al revés", () => api.embudoCsv({ created_from: "2026-09-10", created_to: "2026-09-01" })),
+    await probar("embudo filters (eco)", async () => (await api.embudo({ created_from: "2026-09-01", operation_type: "RENT" })).filters),
+    ...(await Promise.all([30, 90, 180, 0].map(d => probar(`motivos ${d} días`, () => api.motivosPerdida(d))))),
   ]);
 }

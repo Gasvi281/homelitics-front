@@ -25,7 +25,7 @@ function requireEnv(name: string): string {
   return v;
 }
 
-const pedir = crearPedir({
+const transporte = crearPedir({
   usarMocks: process.env.USE_MOCKS === "true",
   urlPara: (path) => `${requireEnv("HOMELITICS_API_URL")}${path}`,
   credenciales: async () => {
@@ -34,4 +34,4 @@ const pedir = crearPedir({
   },
 });
 
-export const api = crearApi(pedir);
+export const api = crearApi(transporte);
