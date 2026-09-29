@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   DndContext, DragOverlay, KeyboardSensor, PointerSensor, pointerWithin, rectIntersection,
   useDraggable, useDroppable, useSensor, useSensors,
@@ -43,6 +43,12 @@ import { TarjetaLead } from "./TarjetaLead";
  */
 export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
   const { data: leads, error, isPending, isFetching } = useLeadsTablero(filtros);
+  // "Actualizando…" solo después de hidratar: si el dato precargado ya pasó
+  // su `staleTime` cuando el navegador hidrata (compilación lenta, pestaña
+  // oculta), useQuery relee al montar e `isFetching` es true en el primer
+  // render del cliente pero false en el servidor — y React tumba la
+  // hidratación por ese <span> de más.
+  const actualizando = useHidratado() && isFetching;
   const moviendose = useLeadsMoviendose();
   const [aviso, setAviso] = useState<{ mensaje: string; reintentar?: MoverLead } | null>(null);
   const moverLead = useMoverLead({
@@ -83,7 +89,7 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
       <ListaCerrados
         etapa={filtros.etapa!}
         leads={leads}
-        isFetching={isFetching}
+        actualizando={actualizando}
         error={error ? mensajeError(error) : null}
       />
     );
@@ -119,7 +125,7 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
     <div>
       <div className="mb-2 flex min-h-5 flex-wrap items-center gap-x-4 text-xs text-neutral-500">
         <span>{leads.length === 1 ? "1 lead abierto" : `${leads.length} leads abiertos`}</span>
-        {isFetching && <span>Actualizando…</span>}
+        {actualizando && <span>Actualizando…</span>}
         {error && <span className="text-red-700">{mensajeError(error)}</span>}
       </div>
 
@@ -226,11 +232,11 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
  * el historial muestra el motivo de pérdida.
  */
 function ListaCerrados({
-  etapa, leads, isFetching, error,
+  etapa, leads, actualizando, error,
 }: {
   etapa: Stage;
   leads: LeadCard[];
-  isFetching: boolean;
+  actualizando: boolean;
   error: string | null;
 }) {
   const nombre = etapa === "LOST" ? "perdido" : "ganado";
@@ -238,7 +244,7 @@ function ListaCerrados({
     <div>
       <div className="mb-2 flex min-h-5 flex-wrap items-center gap-x-4 text-xs text-neutral-500">
         <span>{leads.length === 1 ? `1 lead ${nombre}` : `${leads.length} leads ${nombre}s`}</span>
-        {isFetching && <span>Actualizando…</span>}
+        {actualizando && <span>Actualizando…</span>}
         {error && <span className="text-red-700">{error}</span>}
       </div>
       {leads.length === LIMITE_TABLERO && (
@@ -560,4 +566,15 @@ function mensajeError(e: unknown): string {
     default:
       return e.detail;
   }
+}
+
+const sinSuscripcion = () => () => {};
+
+/**
+ * false en el servidor y durante la hidratación, true desde ahí. Con
+ * useSyncExternalStore y no con un useEffect: en una navegación del lado del
+ * cliente (sin hidratación) ya es true en el primer render.
+ */
+function useHidratado() {
+  return useSyncExternalStore(sinSuscripcion, () => true, () => false);
 }
