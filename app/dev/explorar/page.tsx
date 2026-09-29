@@ -3,7 +3,7 @@ import { api, HomeliticsError } from "@/lib/homelitics";
 import { Aviso } from "@/components/Aviso";
 import { ETIQUETA_ESTADO } from "@/components/TarjetaCita";
 import { fechaHoraLarga } from "@/lib/format";
-import type { Appointment, Stage } from "@/lib/schemas";
+import { Stage, type Appointment } from "@/lib/schemas";
 
 /**
  * Herramienta de desarrollo, no una de las cinco pantallas del sprint (ver
@@ -26,7 +26,7 @@ export default async function ExplorarPage({
 
   let yo, leads;
   try {
-    [yo, leads] = await Promise.all([api.yo(), api.leads({ stage, limit: 15 })]);
+    [yo, leads] = await Promise.all([api.yo(), api.leads({ stage: Stage.safeParse(stage).data, limit: 15 })]);
   } catch (e) {
     return (
       <Contenedor>

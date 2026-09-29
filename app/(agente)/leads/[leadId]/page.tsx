@@ -1,19 +1,27 @@
+import { dehydrate, HydrationBoundary, QueryClient } from "@tanstack/react-query";
 import { api, HomeliticsError } from "@/lib/homelitics";
 import { fechaHoraLarga } from "@/lib/format";
-import { construirLineaTiempo } from "@/lib/lineaTiempo";
 import { Aviso } from "@/components/Aviso";
-import { EmbudoLead } from "@/components/EmbudoLead";
+import { EtapaLead } from "@/components/EtapaLead";
 import { ETIQUETA_CANAL } from "@/components/TarjetaCita";
 import { HistorialLead } from "@/components/HistorialLead";
+import {
+  claveCitasLead, claveInteracciones, claveLead, claveTareasLead, claveTransiciones,
+} from "@/features/tablero-leads/claves";
 
 /**
  * Tarea 2.4 — HU-07. Historial del lead: primera pantalla de (agente).
  *
  * Server Component: trae el lead, el listing de interés, las interacciones,
  * las citas y las tareas antes de mostrar nada — mismo patrón de
- * `.../agendar` y `.../citas/[appointmentId]`. La línea de tiempo (mezcla de
- * las tres últimas fuentes) y el campo de nota viven en HistorialLead, el
- * único Client Component: la nota nueva tiene que aparecer de inmediato.
+ * `.../agendar` y `.../citas/[appointmentId]`. Lo que puede cambiar en la
+ * pantalla se siembra en un QueryClient con las keys de
+ * features/tablero-leads/claves.ts y se entrega con `HydrationBoundary`, como
+ * en el tablero: EtapaLead (embudo y "Marcar como perdido", 2.11) y
+ * HistorialLead (línea de tiempo y nota) lo leen con TanStack Query, y
+ * marcar el lead como perdido lo invalida y relee todo desde el navegador.
+ * El log de transiciones (para saber hasta dónde llegó un lead perdido) no
+ * es imprescindible: si falla, el embudo lo dice sin él y la página sigue.
  *
  * El nombre del cliente NO se muestra: `LeadSchema` solo trae `client_id`
  * (uuid) y el API no tiene forma de resolver un cliente a un nombre
@@ -45,7 +53,16 @@ export default async function LeadPage({
     );
   }
 
-  const eventos = construirLineaTiempo({ interacciones, citas, tareas });
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
+  qc.setQueryData(claveLead(leadId), lead);
+  qc.setQueryData(claveInteracciones(leadId), interacciones);
+  qc.setQueryData(claveCitasLead(leadId), citas);
+  qc.setQueryData(claveTareasLead(leadId), tareas);
+  await qc.prefetchQuery({
+    queryKey: claveTransiciones(leadId),
+    queryFn: () => api.transiciones(leadId),
+  });
+
   const ubicacion = [listing.neighborhood, listing.city].filter(Boolean).join(", ");
 
   return (
@@ -60,12 +77,14 @@ export default async function LeadPage({
         Primer contacto: {fechaHoraLarga(lead.created_at)} por {ETIQUETA_CANAL[lead.source_channel]}
       </p>
 
-      <div className="mt-6">
-        <EmbudoLead etapaActual={lead.current_stage} />
-      </div>
+      <HydrationBoundary state={dehydrate(qc)}>
+        <div className="mt-6">
+          <EtapaLead leadInicial={lead} />
+        </div>
 
-      <h2 className="mt-8 text-base font-semibold text-neutral-900">Historial</h2>
-      <HistorialLead leadId={lead.id} eventosIniciales={eventos} />
+        <h2 className="mt-8 text-base font-semibold text-neutral-900">Historial</h2>
+        <HistorialLead leadId={lead.id} />
+      </HydrationBoundary>
     </Contenedor>
   );
 }

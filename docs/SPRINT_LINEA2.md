@@ -57,9 +57,128 @@ Escala de 1 a 5 para el interés, botones de objeción (precio, tamaño, ubicaci
 estado, administración, otro), campo de texto libre y un botón de enviar. Solo
 se abre si la visita quedó marcada como realizada.
 
+## HU-06 y HU-09: tablero de leads y lead perdido
+
+Agregado el 2026-09-27. Todo lo del API que usan estas tareas está en
+`docs/API_CONTRACT.md`: `GET /leads` (tarjetas `LeadCard` y filtros),
+`POST` y `GET /leads/{id}/transitions`, y la sección de errores.
+
+### Tareas
+
+| # | Tarea | HU | Criterio de "done" |
+|---|---|---|---|
+| 2.7 | Esquemas y cliente: `LeadCardSchema`, `TransitionSchema` y los códigos de `lost_reason` en `lib/schemas.ts`; `api.tablero(filtros)`, `api.moverLead(id, body)` y `api.transiciones(id)` en `lib/homelitics-nucleo.ts`; mocks en `lib/mock/` validados contra esos esquemas | HU-06, HU-09 | Los mocks pasan por zod; un 409 y un 422 de `transitions` llegan a la pantalla como `HomeliticsError` con `kind` propio, sin códigos HTTP; el 422 se entiende en sus dos formas (simple y array de Pydantic) |
+| 2.8 | Tablero de solo lectura: ruta `(agente)/tablero`, una columna por etapa abierta, tarjetas de `GET /leads?active=true` | HU-06 AC1 | Cada tarjeta muestra nombre del cliente, propiedad (dirección y barrio) y la última interacción con su fecha en hora de Bogotá; si falta un dato nullable, lo dice en vez de inventarlo; tarjeta enlaza a `/leads/{id}` (2.4) |
+| 2.9 | Filtros en la URL: propiedad, rango de fecha de creación y etapa, leídos por la página (Server Component) y mandados a `GET /leads` | HU-06 AC3 | Un enlace con filtros abre el tablero ya filtrado; recargar no los pierde; `created_from > created_to` se frena en el formulario y nunca llega al API |
+| 2.10 | Mover etapa con drag & drop y actualización optimista contra `POST /leads/{id}/transitions` | HU-06 AC2 | Solo se puede soltar en columnas que son saltos legales; la tarjeta se mueve al instante; un 409 la devuelve a su columna con un mensaje y relee el tablero; tras recargar, el tablero refleja también las etapas que movió el calendario solo; hay una forma de mover sin arrastrar (menú "Mover a…") para teclado y pantallas táctiles |
+| 2.11 | Marcar como perdido: soltar en "Perdido" o elegir "Marcar como perdido" abre un diálogo con los seis motivos y una nota libre (máx. 2000) | HU-09 AC1 | No se puede enviar sin motivo; el diálogo avisa antes de confirmar que es definitivo y que cancela las visitas abiertas del lead; al confirmar, `to_stage: "LOST"` con `lost_reason` y `note` |
+| 2.12 | Consultar los perdidos: vista de cerrados con `stage=LOST` (y `stage=WON`), aparte del tablero activo | HU-09 AC2 | El lead perdido desaparece del tablero activo y aparece en la vista de cerrados; en su historial (2.4) se lee el motivo, que el API deja como interacción `"Lost: <motivo> — <nota>"` |
+
+**HU-09 AC3 no es tarea de este bloque.** El conteo de motivos lo resuelve el
+back con `GET /analytics/lost-reasons` (ver `docs/API_CONTRACT.md` §3); el
+front solo lo consume en HU-17.
+
+## HU-17: embudo de conversión
+
+Agregado el 2026-09-27. Ruta `(agente)/embudo`, solo `TEAM_ADMIN`. Usa
+`GET /analytics/funnel` y `GET /analytics/lost-reasons` (docs/API_CONTRACT.md
+§3). Código en `features/embudo/`.
+
+Criterio de "done":
+- Barras horizontales por etapa (Tailwind, sin librería de gráficas), ancho
+  por `pct_of_first`, con `leads_reached`, `pct_from_prev` y `pct_of_first`;
+  la etapa con menor `pct_from_prev` marcada "Aquí se pierden más clientes"
+  (AC1). Perdidos aparte. La misma información en una tabla accesible.
+- Filtros en la URL (`?desde&hasta&propiedad&operacion&agente`); un rango al
+  revés se frena en el formulario y, si llega por la URL, no se pide.
+- Motivos de pérdida con su propio selector de 30/90/180 días, aclarando que
+  no siguen los filtros del embudo (el endpoint solo acepta `days`).
+- Estados: cargando, vacío, error con reintento y sin permiso (un `AGENT` ve
+  el aviso sin que se llame al API).
+
+Estado: hecho y probado con mocks. Contra el API real (2026-09-27, solo
+lecturas): el agente demo es `AGENT`, así que `GET /analytics/funnel` da 403
+con cualquier filtro, en JSON y en CSV, y `/embudo` muestra el aviso de "solo
+administradores" sin errores en consola. **La forma real del JSON y del CSV no
+se pudo ver con datos**: se comparó `FunnelOut`/`FunnelStageOut` de
+`/openapi.json` con `FunnelSchema` (coinciden campo por campo, incluidos los
+`null`) y el CSV con el código del back. Falta un token `TEAM_ADMIN` (login
+real, etapa 2, o un demo admin en `.env.local`) para cerrar esa prueba.
+`GET /analytics/lost-reasons` sí respondió con datos reales y pasa por zod. El
+filtro por agente usa `GET /agents`, publicado el 2026-09-28.
+
+### Arquitectura
+
+- **`app/(agente)/tablero/page.tsx` es Server Component** (la ruta era
+  `(agente)/leads`; quedó en `/tablero` para no chocar con el detalle
+  `/leads/{id}`). Lee los filtros de
+  `searchParams`, precarga `GET /leads` con un `QueryClient` de servidor
+  (`prefetchQuery` sobre `api` de `lib/homelitics.ts`) y entrega el caché con
+  `dehydrate` + `<HydrationBoundary>`. El primer render llega con datos, sin
+  cascada de carga en el navegador. `app/providers.tsx` pone `staleTime` de
+  30 s por defecto para que lo hidratado no se vuelva a pedir al montar. El
+  código vive en `features/tablero-leads/`: `claves.ts` (filtros de la URL y
+  query keys, compartido servidor/navegador), `hooks.ts` y `components/`.
+- **Un Client Component (`components/Tablero.tsx` o similar) con el estado
+  interactivo.** Usa `useQuery` con la **misma query key** que la página
+  (incluye los filtros) y `api` de `lib/homelitics-navegador.ts`, nunca el de
+  servidor. Cambiar un filtro cambia la URL (`router.replace`), no un estado
+  local.
+- **Actualización optimista con `useMutation`:** en `onMutate` se cancela la
+  query, se guarda la foto anterior y se mueve la tarjeta en el caché; en
+  `onError` se restaura la foto; en `onSettled` se invalida la query para
+  releer del API. `LOST` sale del caché del tablero activo en `onMutate`.
+- **Qué columnas acepta cada tarjeta se calcula en el front** con la misma
+  tabla de saltos legales del contrato, para no tener que esperar el 409 en el
+  caso normal. El 409 sigue manejado: otra persona o el calendario pudieron
+  mover el lead mientras tanto.
+- **Drag & drop con `@dnd-kit/core`** (aprobada el 2026-09-27, ya en la lista
+  de `CLAUDE.md`), en vez de la API nativa de HTML5: da arrastre por teclado
+  y anuncios para lector de pantalla. El puntero tiene 8 px de distancia de
+  activación para que un clic siga abriendo el lead. En táctil el arrastre no
+  se activa (las columnas necesitan el scroll horizontal), así que el menú
+  "Mover a…" de 2.10 sigue sin ser opcional.
+- **Columnas:** `INTERESTED`, `VISIT_SCHEDULED`, `VISITED`, `NEGOTIATING`
+  como columnas; `WON` y `LOST` como zonas de soltar, no como columnas con
+  tarjetas (con `active=true` nunca traen tarjetas).
+- **"Perdido" (2.11)** es una zona fija abajo a la derecha, visible solo
+  mientras se arrastra (con teclado, flecha abajo). Soltar ahí no llama al
+  API: abre `components/ModalPerdido.tsx`, y el optimismo corre al confirmar
+  el motivo. El mismo diálogo y el mismo `useMoverLead` se usan desde el
+  botón "Marcar como perdido" del detalle del lead, que por eso pasó a leer
+  sus datos con TanStack Query (sembrados por el servidor): marcarlo invalida
+  `["leads", id]` y el historial muestra la línea del motivo sin recargar.
+- **Vista de cerrados (2.12):** `?etapa=LOST` (o `WON`) en la misma ruta
+  `/tablero`, pedida sin `active`; lista de solo lectura, sin arrastre. El
+  botón "Ver perdidos" entra y sale de ella. El detalle de un lead perdido
+  dice hasta qué etapa llegó, sacado de `GET /leads/{id}/transitions`.
+
+### Notas y huecos
+
+- **`client_name` resuelve el bloqueo 6 para el tablero**, no para 2.4: la
+  tarjeta lo trae, `GET /leads/{id}` no. Es nullable.
+- **Filtro por propiedad:** `GET /leads` acepta `property_id`, pero no hay
+  `GET /properties`. El selector se arma con `GET /listings` (agrupando por
+  `property_id`). Si el catálogo supera 200 listings, se pagina.
+- **Filtro por etapa con `active=true`:** combinar los dos no está
+  documentado. El filtro de etapa del tablero activo solo ofrece las cuatro
+  etapas abiertas; `WON`/`LOST` van por la vista de 2.12 sin `active`.
+- **Paginación:** `limit` máximo 200. El tablero pide 200; si una agencia
+  tiene más leads abiertos, hace falta paginar o avisar que la vista está
+  recortada. Queda para decidir cuando se vea con datos reales.
+- **"Los cambios del calendario se reflejan al recargar"** (AC2) se cumple
+  releyendo `GET /leads`: no hay push. Cuáles mueve el calendario:
+  `docs/API_CONTRACT.md`, `POST /leads/{id}/transitions`, "efectos
+  colaterales". Relectura periódica como la de 2.3 es opcional, no la pide el
+  AC.
+- **Zona horaria de `created_from`/`created_to`:** el API usa
+  `APP_TIMEZONE`, `America/Bogota` por defecto. `/openapi.json` no lo dice;
+  sale del código. Si en producción fuera otra, los bordes del filtro se
+  correrían unas horas.
+
 ## Bloqueos
 
-Tres cosas dependen de L1. Mientras no se resuelvan, la pantalla afectada se
+Varias cosas dependen de L1. Mientras no se resuelvan, la pantalla afectada se
 construye contra `lib/mock/`.
 
 1. **No hay forma de registrar un cliente nuevo.** `POST /leads` exige un
@@ -135,6 +254,22 @@ construye contra `lib/mock/`.
    campo de nombre. Si se necesita el nombre real en la interfaz, hay que
    pedirle a L1 un endpoint de clientes o exponer un campo `full_name` (o
    similar) en `LeadOut`.
+
+   **Parcialmente resuelto el 2026-09-27:** `GET /leads` ahora devuelve
+   tarjetas `LeadCard` con `client_name` (nullable). Sirve para el tablero de
+   HU-06; `GET /leads/{id}`, que usa 2.4, sigue devolviendo `LeadOut` sin
+   nombre.
+
+7. ~~No hay `GET /agents`~~ — **resuelto el 2026-09-28.** L1 la publicó
+   (PR #20 del back) con otra forma que la propuesta: `AgentListItem`, sin
+   `email`; ver `docs/API_CONTRACT.md`, sección 3. El front ya la consume y el
+   estado "pendiente" de `useAgentes()` se quitó. Prueba en vivo con un token
+   `TEAM_ADMIN` el 2026-09-28:
+   - [x] Reasignar un lead de prueba ida y vuelta: cambia de dueño, el
+     tablero lo refleja y el 409 llega como en el contrato. Falta ver el 403
+     (necesita un token `AGENT`) y traducir el `detail` del 409.
+   - [x] Filtro por agente en `/tablero` y `/embudo`: la URL con `?agente=`
+     filtra y recargar no lo pierde. Falta ver el nombre en el CSV y el PDF.
 
 ### Nota sobre 2.1: qué tan fiel es la grilla al prototipo
 

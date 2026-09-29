@@ -120,7 +120,10 @@ pantallas; `docs/SPRINT_LINEA2.md` lo describe en texto.
 
 `next`, `react`, `typescript`, `tailwindcss`, `shadcn/ui`, `zod`,
 `@tanstack/react-query`, `date-fns` y `date-fns-tz`, `@supabase/supabase-js`,
-`@supabase/ssr`.
+`@supabase/ssr`, `@dnd-kit/core` (el arrastre del tablero, tarea 2.10),
+`jspdf` y `jspdf-autotable` (el PDF del embudo, HU-17: el API solo exporta
+CSV y deja el PDF al front; se cargan con `import()` al hacer clic en
+`features/embudo/components/ExportarEmbudo.tsx`, nunca con la página).
 
 ## Variables de entorno
 

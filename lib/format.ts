@@ -1,4 +1,4 @@
-import { addDays } from "date-fns";
+import { addDays, format, formatDistanceStrict } from "date-fns";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { es } from "date-fns/locale";
 
@@ -18,6 +18,13 @@ export function formatPrecio(monto: string): string {
   }).format(n);
 }
 
+const PORCENTAJE = new Intl.NumberFormat("es-CO", { style: "percent", maximumFractionDigits: 1 });
+
+/** 45.5 -> "45,5 %". El API manda los porcentajes de 0 a 100, o `null` -> "—". */
+export function formatPorcentaje(pct: number | null): string {
+  return pct === null ? "—" : PORCENTAJE.format(pct / 100);
+}
+
 /** "2026-09-17T15:30:00Z" -> "10:30" en hora de Bogotá */
 export function horaLocal(iso: string): string {
   return formatInTimeZone(iso, TZ, "HH:mm");
@@ -26,6 +33,29 @@ export function horaLocal(iso: string): string {
 /** "2026-09-17T15:30:00Z" -> "jueves 17 de septiembre, 10:30" */
 export function fechaHoraLarga(iso: string): string {
   return formatInTimeZone(iso, TZ, "EEEE d 'de' MMMM, HH:mm", { locale: es });
+}
+
+/**
+ * "2026-09-17T15:30:00Z" -> "hace 3 horas". Una distancia no depende de la
+ * zona horaria; si hace falta la fecha exacta, `fechaHoraLarga` (Bogotá).
+ */
+export function tiempoRelativo(iso: string, ahora: Date = new Date()): string {
+  return formatDistanceStrict(new Date(iso), ahora, { addSuffix: true, locale: es });
+}
+
+/**
+ * "2026-09-01" -> "1 de septiembre de 2026". Para un día `YYYY-MM-DD` que ya
+ * está en la zona de la agencia (los filtros de fecha): no se convierte de
+ * zona, se lee tal cual.
+ */
+export function diaLargo(dia: string): string {
+  const [a, m, d] = dia.split("-").map(Number);
+  return format(new Date(a, m - 1, d), "d 'de' MMMM 'de' yyyy", { locale: es });
+}
+
+/** "2026-09-27T17:04:00Z" -> "27 de septiembre de 2026, 12:04" en hora de Bogotá. */
+export function fechaHoraConAnio(iso: string): string {
+  return formatInTimeZone(iso, TZ, "d 'de' MMMM 'de' yyyy, HH:mm", { locale: es });
 }
 
 /** Clave de día en Bogotá, para agrupar la grilla. "2026-09-17" */

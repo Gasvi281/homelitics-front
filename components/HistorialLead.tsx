@@ -1,9 +1,12 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api, HomeliticsError } from "@/lib/homelitics-navegador";
 import type { Interaction, Task } from "@/lib/schemas";
-import { type EventoTimeline } from "@/lib/lineaTiempo";
+import { construirLineaTiempo, textoInteraccion, type EventoTimeline } from "@/lib/lineaTiempo";
+import { claveInteracciones } from "@/features/tablero-leads/claves";
+import { useCitasLead, useInteracciones, useTareasLead } from "@/features/tablero-leads/hooks";
 import { fechaHoraLarga } from "@/lib/format";
 import { Aviso } from "@/components/Aviso";
 import { ETIQUETA_CANAL, ETIQUETA_ESTADO } from "@/components/TarjetaCita";
@@ -28,24 +31,23 @@ const ETIQUETA_TAREA: Record<Task["status"], string> = {
 
 /**
  * Línea de tiempo vertical del lead más el campo de nota manual (tarea 2.4 —
- * HU-07). Único Client Component de la pantalla: la nota nueva tiene que
- * aparecer de inmediato, y el criterio de "done" no pide relectura periódica
- * como 2.3, así que un `useState` alcanza sin necesitar TanStack Query.
+ * HU-07). Interacciones, citas y tareas llegan sembradas por la página en el
+ * caché de TanStack Query (mismas keys que features/tablero-leads/claves.ts):
+ * así, marcar el lead como perdido (components/EtapaLead.tsx) las invalida y
+ * aparecen la línea del motivo y las visitas canceladas sin recargar.
  *
  * La nota se manda con `direction: "OUTBOUND"`, `type: "NOTE"`,
  * `channel: "IN_APP"` (docs/API_CONTRACT.md: así es "una nota manual del
- * agente"). Al éxito se agrega al final del arreglo en memoria — no hace
- * falta reordenar: el API le pone `occurred_at` a "ahora", que siempre cae
+ * agente"). Al éxito se agrega al final de las interacciones en caché — no
+ * hace falta releer: el API le pone `occurred_at` a "ahora", que siempre cae
  * después de todo lo histórico.
  */
-export function HistorialLead({
-  leadId,
-  eventosIniciales,
-}: {
-  leadId: string;
-  eventosIniciales: EventoTimeline[];
-}) {
-  const [eventos, setEventos] = useState(eventosIniciales);
+export function HistorialLead({ leadId }: { leadId: string }) {
+  const qc = useQueryClient();
+  const interacciones = useInteracciones(leadId).data ?? [];
+  const citas = useCitasLead(leadId).data ?? [];
+  const tareas = useTareasLead(leadId).data ?? [];
+  const eventos = construirLineaTiempo({ interacciones, citas, tareas });
   const [nota, setNota] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,10 +66,7 @@ export function HistorialLead({
         channel: "IN_APP",
         body: texto,
       });
-      setEventos((prev) => [
-        ...prev,
-        { id: interaccion.id, tipo: "interaccion", fecha: interaccion.occurred_at, interaccion },
-      ]);
+      qc.setQueryData<Interaction[]>(claveInteracciones(leadId), (prev = []) => [...prev, interaccion]);
       setNota("");
     } catch (err) {
       setError(mensajeErrorNota(err));
@@ -120,6 +119,8 @@ export function HistorialLead({
 function EntradaTimeline({ evento }: { evento: EventoTimeline }) {
   if (evento.tipo === "interaccion") {
     const i = evento.interaccion;
+    // "Lost: PRICE — nota" se lee "Perdido: Precio — nota".
+    const texto = textoInteraccion(i);
     return (
       <div>
         <p className="text-xs text-neutral-400">{fechaHoraLarga(i.occurred_at)}</p>
@@ -127,7 +128,7 @@ function EntradaTimeline({ evento }: { evento: EventoTimeline }) {
           {ETIQUETA_TIPO_INTERACCION[i.type]}
           {i.type !== "STATUS_CHANGE" && ` · ${ETIQUETA_DIRECCION[i.direction]} por ${ETIQUETA_CANAL[i.channel]}`}
         </p>
-        {i.body && <p className="mt-1 text-sm text-neutral-600">{i.body}</p>}
+        {texto && <p className="mt-1 text-sm text-neutral-600">{texto}</p>}
       </div>
     );
   }

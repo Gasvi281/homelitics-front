@@ -854,3 +854,394 @@ leads de otros agentes, aparecieron dos reglas de `POST
 de "visita ya abierta" es solo para otro horario), y los agentes de IA solo
 reservan dentro de `/slots` con 120 minutos de anticipación. Agregadas al
 contrato. Ningún cambio de código: el `200` ya se trata como éxito.
+
+## 2026-09-27 — Base del tablero (HU-06 / HU-09), sin pantallas
+
+Hecho: `lib/schemas.ts` suma `LostReason`, `LastInteractionSchema`,
+`LeadCardSchema` (extiende `LeadSchema`; `asking_price` con el mismo `money`
+de los listings), `TransitionSchema` y `CreateTransitionBody`, con un
+`superRefine` que replica la regla del back (`lost_reason` obligatorio en
+`LOST` y prohibido con valor en cualquier otra etapa; `null` sí vale).
+`lib/etapas.ts` es la fuente única de orden (`EMBUDO`, `ETAPAS`), etiquetas de
+etapa y de motivo de pérdida, `esTerminal`, `puedeMover` y `destinosLegales`;
+`EmbudoLead` ya las importa de ahí. En `lib/homelitics-nucleo.ts`, `leads()`
+acepta todos los filtros del contrato (`FiltrosLeads`) y valida con
+`LeadCardSchema`; hay `transiciones()` y `moverLead()`. El mock tiene 5
+listings (uno con dos publicaciones, uno sin dirección) y 14 leads en las
+seis etapas, filtra como el API y aplica las reglas 409/422 de las
+transiciones con sus efectos (interacción `STATUS_CHANGE`, visitas canceladas
+al cerrar). `/api/mocktest` tiene casos nuevos para todo esto.
+
+Decidido: **no hizo falta un `kind` nuevo** en `lib/errores.ts`: 409 ya es
+`conflicto`, 422 ya es `invalido` y `traducirError` ya aplana el array de
+Pydantic. La pantalla hace lo mismo con los dos 409 (revertir y releer), así
+que no vale separarlos. `leads()` rechaza `created_from > created_to` sin
+llamar al API, y `moverLead()` convierte la falla del `superRefine` en
+`HomeliticsError("invalido")`, para que la pantalla nunca vea un `ZodError`.
+`/dev/explorar` ahora valida su `?stage=` con `Stage.safeParse`.
+
+Verificado: `tsc` y `eslint` limpios. Los mocks se probaron compilando el
+núcleo aparte y llamándolo con `usarMocks: true` (sin red): filtros, orden,
+paginación, 409 de salto ilegal/retroceso/terminal y los tres 422. **No** se
+corrió `/api/mocktest` en el navegador porque `.env.local` tiene
+`USE_MOCKS=false` y los casos de `moverLead` moverían leads reales.
+
+Pendiente: `crearCitaMock` no da el 409 "takes no visits" para leads
+terminales, y `actualizarCitaMock` no replica el `_sync_funnel` del
+calendario (cita `CONFIRMED`/`COMPLETED` que adelanta la etapa). Faltan las
+pantallas del tablero.
+
+## 2026-09-27 — Tablero de leads de solo lectura con filtros (2.8 + 2.9)
+
+Hecho: ruta `app/(agente)/tablero/` (Server Component + `loading.tsx`). La
+página lee `?etapa=&propiedad=&desde=&hasta=`, precarga `GET /leads`
+(`active=true`, `limit=200`) y `GET /listings` con un `QueryClient` nuevo por
+request y entrega el caché con `HydrationBoundary`. Código en
+`features/tablero-leads/`: `claves.ts` (normaliza los filtros de la URL,
+`claveLeadsTablero`, `clavePropiedades`, `aFiltrosApi`), `hooks.ts`
+(`useLeadsTablero`, `usePropiedades`, con `lib/homelitics-navegador.ts`) y
+`components/` (`FiltrosTablero`, `TableroLeads`, `TarjetaLead`).
+`lib/format.ts` suma `tiempoRelativo`. `app/providers.tsx` pone `staleTime`
+30 s por defecto. El layout de (agente) tiene una barra con enlace al tablero.
+
+Decidido: la ruta es `/tablero` y no `/leads` como decía el sprint (doc
+corregido). Los filtros llegan al tablero como prop desde `searchParams`, no
+desde `useSearchParams`: la key del cliente es exactamente la del servidor y
+cambiar un filtro no dispara una petición del navegador además de la del
+servidor. El selector de propiedad agrupa listings por `property_id`. Una
+etapa terminal o una fecha mal formada en la URL se descartan; un rango al
+revés en la URL muestra un aviso y no se pide. El formulario usa `noValidate`:
+con `min`/`max` en las fechas el navegador frenaba el envío con su propio globo
+en vez del mensaje en español. El "hace N" de la tarjeta lleva
+`suppressHydrationWarning` y la fecha exacta en Bogotá en el `title`.
+
+Verificado con `USE_MOCKS=true` (cambiado a mano en `.env.local` y
+restaurado): `tsc` y `eslint` limpios; cuatro columnas con los 10 leads
+abiertos del mock; filtro de propiedad doble (4 tarjetas, SALE y RENT) sin
+recargar la página; etapa + fechas; rango al revés frenado en el formulario y
+en la URL; en móvil las columnas hacen scroll horizontal sin desbordar la
+página; sin errores de consola. Con mocks el navegador no hace peticiones de
+red, así que "la hidratación no vuelve a pedir" no se pudo comprobar mirando
+la red; queda por mirar contra el API real.
+
+Pendiente: 2.10 (drag & drop + "Mover a…"), 2.11 (perdido), 2.12 (cerrados).
+Paginación si una agencia pasa de 200 leads abiertos (hoy solo avisa).
+
+## 2026-09-27 — Drag & drop en el tablero (2.10, primera parte)
+
+Hecho: `@dnd-kit/core` 6.3.1 (versión fija, agregada a las dependencias
+aprobadas de `CLAUDE.md`). `TableroLeads` monta un `DndContext` con
+`PointerSensor` (8 px de activación: el clic sigue abriendo el lead) y
+`KeyboardSensor` (espacio toma y suelta, flechas saltan de columna válida en
+columna, Escape cancela, Enter abre el lead), con instrucciones y anuncios
+en español. Mientras se arrastra, solo las columnas que `puedeMover()`
+permite quedan resaltadas y activas; las demás, atenuadas y deshabilitadas.
+"Ganado" es una zona de soltar al final y pide confirmación en un
+`<dialog>` modal antes de enviar `WON`. `hooks.ts` suma `useMoverLead`
+(optimista), `useLeadsMoviendose` y `mensajeErrorMover`; `claves.ts` suma
+`PREFIJO_TABLERO`, `claveTransiciones` y `claveInteracciones`. La tarjeta en
+vuelo muestra "Moviendo…" y no se puede volver a arrastrar. `lib/mock` tiene
+un interruptor manual (`globalThis.__homeliticsMock`) para latencia y fallas.
+
+Decidido: onError no restaura la foto entera de cada key sino solo la
+tarjeta que falló, en su posición: con dos movimientos en vuelo, la foto del
+segundo ya trae el primero movido, y restaurarla lo re-aplicaba después de
+deshecho (se vio en la prueba). El tablero se relee solo cuando termina el
+último movimiento en vuelo (`isMutating() === 1`). `onSettled` no espera las
+relecturas: "pendiente" dura lo que dura el POST. El aviso de error va por
+un `alFallar` del hook y no por las opciones de `mutate()`, que solo corren
+para la última llamada. El aviso de red trae "Reintentar"; el de 409 no. Las
+columnas solo se deshabilitan cuando se sabe que son inválidas, y el salto
+por teclado filtra con `puedeMover()`: si no, una flecha rápida llegaba
+antes del render que habilita las válidas.
+
+Verificado con `USE_MOCKS=true` (cambiado a mano en `.env.local` y
+restaurado): `tsc` y `eslint` limpios; salto legal por teclado y por mouse;
+salto ilegal (Interesado → Visitó) con falla de red activada, sin aviso ni
+pendiente, o sea sin llamada; 409 simulado, la tarjeta vuelve y sale el
+mensaje; red simulada con dos tarjetas en vuelo, ambas vuelven a su lugar
+y orden, y "Reintentar" completa el movimiento; WON con confirmación sale
+del tablero; la tarjeta pendiente no se vuelve a tomar; el clic sigue
+navegando; sin errores de consola.
+
+Pendiente de 2.10: el menú "Mover a…" (táctil y alternativa sin arrastre:
+en táctil el arrastre no arranca porque no se puso `touch-action: none`,
+para no romper el scroll horizontal de las columnas). Después, 2.11
+(Perdido) y 2.12.
+
+## 2026-09-27 — Lead perdido (2.11 + 2.12, HU-09)
+
+Hecho: zona "Perdido" en el tablero, fija abajo a la derecha y visible solo
+mientras se arrastra (acepta cualquier etapa abierta; con teclado, flecha
+abajo). Soltar ahí no llama al API: abre `components/ModalPerdido.tsx`
+(`<dialog>` nativo, foco en el motivo, Esc cancela, motivo obligatorio con
+las etiquetas de `lib/etapas.ts`, nota opcional con contador de 2000, aviso
+de que es definitivo y cancela las visitas). Confirmar llama a
+`useMoverLead` con `to_stage: "LOST"`, `lost_reason` y `note`, y solo ahí
+corre el optimismo. El detalle del lead tiene el botón "Marcar como perdido"
+(`components/EtapaLead.tsx`) con el mismo modal y hook. Vista de cerrados:
+"Ver perdidos" cambia a `?etapa=LOST` (sin `active`), lista de solo lectura;
+el filtro de etapa ofrece Ganado/Perdido en ese modo. `lib/lineaTiempo.ts`
+suma `textoInteraccion()`: "Lost: PRICE — nota" se lee "Perdido: Precio —
+nota" en el historial y en las tarjetas. `EmbudoLead` recibe `perdidoDesde`
+(del log de transiciones) y muestra "Perdido en <etapa>".
+
+Decidido: el detalle del lead pasó a TanStack Query (el servidor siembra
+lead, interacciones, citas, tareas y transiciones con `setQueryData` +
+`HydrationBoundary`); sin eso no había nada que invalidar y `HistorialLead`
+guardaba los eventos en `useState`. Todo lo del lead cuelga de
+`["leads", id]` y `useMoverLead` invalida ese prefijo entero. En el tablero
+el modal se cierra al confirmar y un error sale en el aviso de siempre; en el
+detalle queda abierto mientras envía y muestra el error adentro para
+reintentar. En la detección de colisiones la zona Perdido gana solo bajo el
+puntero (con teclado podría rozarla al saltar de columna). `DndContext` lleva
+`id` fijo: el que genera @dnd-kit no coincidía entre servidor y navegador y
+daba un aviso de hidratación en `aria-describedby`. `mensajeErrorMover` suma
+el caso `invalido` y ya no nombra "el tablero".
+
+Verificado con `USE_MOCKS=true` (cambiado a mano en `.env.local` y
+restaurado): `tsc` y `eslint` limpios; perdido desde Interesado, Visita
+agendada y Visitó en el tablero (una por teclado) y desde Negociando en el
+detalle; Cancelar y Esc dejan la tarjeta en su columna; 422 forzado con
+`__homeliticsMock = { falla: "invalido" }`: en el tablero la tarjeta vuelve
+con aviso, en el detalle el error sale en el modal y el reintento funciona;
+"Ver perdidos" lista la semilla con el motivo traducido; el detalle de un
+perdido dice "Perdido en Visitó"/"Perdido en Negociando".
+
+Pendiente: el menú "Mover a…" de 2.10 (sigue siendo la única forma de
+perder desde el tablero sin arrastrar; en el detalle ya está el botón).
+Con mocks, lo perdido en el navegador no aparece en `?etapa=LOST` porque esa
+página la precarga la copia del servidor (anotado en `lib/mock/README.md`);
+con el API real no pasa. Falta probarlo contra el API real.
+
+## 2026-09-27 — Preparación de HU-08 (reasignar) y HU-17 (embudo): piezas compartidas
+
+Hecho: `docs/API_CONTRACT.md` documenta, verificados contra `/openapi.json`,
+`POST /leads/{id}/reassign`, `GET /analytics/funnel` y
+`GET /analytics/lost-reasons` (salen de la §7), y una §3 bis "PROPUESTO — aún
+no existe en el API" con `GET /agents` (confirmado: el API real responde 404).
+Bloqueo 7 en `docs/SPRINT_LINEA2.md`. `api.agentes({active?})` en el núcleo.
+Mock: 4 agentes (Hernando TEAM_ADMIN, Paula y Andrés activos, Carlos
+inactivo) y leads del tablero repartidos; `/slots` acepta cualquier agente de
+la agencia y `agent_name` de la cita sale de su agente.
+`features/agentes/`: `useAgentes()` (disponible | pendiente | cargando |
+error), `SelectorAgente` y `NombreAgente`. `lib/agente-actual.ts`
+(`cache()` sobre `/me`) + `AgenteActualProvider`/`useAgenteActual`/
+`useEsAdmin` en `features/agentes/AgenteActual.tsx`; el layout de (agente)
+muestra "Embudo" solo a TEAM_ADMIN.
+
+Decidido: el 404 de `/agents` se atrapa en `queryFn` y se guarda como valor
+"pendiente", no como error: así no hay reintentos ni relecturas por montaje
+(TODO visible en `useAgentes()` para quitarlo). Una sola petición trae todos
+los agentes; el selector filtra activos y excluidos del caché. Se agregó el
+estado "cargando" a los tres pedidos. Si `/me` falla, el layout sigue y solo
+esconde lo de admin. Nuevo interruptor de mock `{ sinAgentes: true }`.
+
+Verificado con `USE_MOCKS=true` (restaurado) en una página temporal ya
+borrada: selector con excluidos y solo activos, nombres por id, estado
+pendiente deshabilitado con `aria-describedby`, "Embudo" oculto con rol AGENT.
+`tsc` y `eslint` limpios.
+
+Pendiente: `/embudo` todavía no existe (el enlace da 404 hasta HU-17);
+`api.reasignar()`, `api.embudo()`, `api.motivosPerdida()` y sus esquemas zod
+van con la tarea de cada pantalla.
+
+## 2026-09-27 — Reasignar un lead (HU-08)
+
+**Hecho.** `api.reasignarLead()` (`POST /leads/{id}/reassign`, `LeadSchema`,
+cuerpo validado con `ReassignBody` antes de enviar) y su mock (403 / 404 /
+422 / 409 inactivo o mismo dueño; cambia `agent_id` en memoria).
+`features/reasignar/`: `useReasignarLead()` + `mensajeErrorReasignar()`,
+`ModalReasignar` (`<dialog>` como ModalPerdido, nota de "sin notificación y
+tareas con el anterior") y `ReasignarLead` (botón + modal). Puntos de
+entrada solo para `useEsAdmin()`: "A cargo de …" y "Reasignar" en el
+detalle (no en leads cerrados), el dueño en `TarjetaLead`, y el filtro
+"Agente" del tablero (`?agente=` → `agent_id`).
+
+Decidido: no optimista (solo cambia el dueño, no la columna); al terminar
+invalida `PREFIJO_TABLERO` y `prefijoLead(id)`, y con 409 relee la lista de
+agentes. Con 403 el modal no deja reintentar. El filtro ofrece también a los
+inactivos (pueden conservar leads); el selector del modal no. Nuevas props:
+`NombreAgente.prefijo` y `SelectorAgente.autoFocus`. Nuevo interruptor de
+mock `{ rol: "AGENT" }`. Verificado en /openapi.json que reasignar no
+escribe interacción: `textoInteraccion()` no cambia.
+
+Verificado con `USE_MOCKS=true` (restaurado): casos del mock en
+`/api/mocktest`; reasignación ok (el detalle pasa a "A cargo de Andrés
+Montoya"); 409 simulado con reintento; 403 sin reintento; "pendiente" con
+selector y botón deshabilitados y explicados; rol AGENT sin botón, sin
+nombres ni filtro. `tsc` y `eslint` limpios.
+
+Pendiente: contra el API real depende de `GET /agents` (bloqueo 7). Con
+mocks, el navegador y el servidor tienen memorias separadas: una
+reasignación hecha en el navegador se pierde al recargar la página.
+
+## 2026-09-27 — Embudo de conversión (HU-17)
+
+**Hecho.** `FunnelSchema` y `LostReasonStatSchema` en `lib/schemas.ts`;
+`api.embudo()` (`GET /analytics/funnel`, rechaza el rango al revés sin
+llamar, con la misma guarda que `leads()`, ahora `rechazarRangoAlReves`) y
+`api.motivosPerdida(days)`. `lib/filtros-url.ts` saca de
+`features/tablero-leads/claves.ts` la lectura de parámetros y fechas; el
+tablero la usa sin cambiar de comportamiento. `features/embudo/`: `claves.ts`
+(filtros, `claveEmbudo`, `claveMotivos`, `etapaConMayorCaida`), `hooks.ts`
+(`useEmbudo`, `useMotivosPerdida`; no reintentan 403 ni 422),
+`FiltrosEmbudo`, `Embudo` (estados), `GraficaEmbudo`, `TablaConversion` y
+`MotivosPerdida`. Ruta `app/(agente)/embudo/` con `page.tsx` y
+`loading.tsx`. `formatPorcentaje()` en `lib/format.ts`.
+
+Decidido: si `/me` dice que no es `TEAM_ADMIN`, la página muestra el aviso y
+no llama a `/analytics/*`; si `/me` falla, se intenta igual y el 403 se
+pinta como "sin permiso". Mayor caída = menor `pct_from_prev` no nulo (en
+empate, la más temprana); la gráfica va `aria-hidden` y la tabla es la
+versión accesible. Motivos con selector propio (estado local, no URL). Mocks
+de analítica sobre los 14 leads (vía su log de transiciones) más una cohorte
+histórica determinista de ~120 leads solo para analítica; nuevo interruptor
+`{ fallaAnalitica }`.
+
+Verificado con `USE_MOCKS=true` (segunda instancia en el 3001, ya apagada):
+`/api/mocktest` con cada filtro, vacío, rango al revés (local) y días
+30/90/180/0; en pantalla, filtros de operación + agente por formulario y de
+propiedad y fechas por URL (renderizado ya en el servidor), rango al revés
+frenado en el formulario y en la URL, vacío, motivos cambiando sin tocar la
+URL, error y reintento en los dos bloques, y rol `AGENT` sin enlace ni
+llamadas. `tsc` y `eslint` limpios. Contra el API real (servidor del 3000):
+el demo es `AGENT` y `/analytics/funnel` da 403; `/lost-reasons` responde.
+
+Pendiente: el filtro por agente depende de `GET /agents` (bloqueo 7). Ojo al
+probar: dos `next dev` en el mismo repo comparten `.next` y al recompilar se
+pisan los manifiestos (404/500 raros); usar uno a la vez.
+
+## 2026-09-27 — Exportar el embudo en CSV y PDF (HU-17 AC3)
+
+**Hecho.** `crearPedir` devuelve ahora `{ pedir, pedirTexto }`
+(`Transporte`) y `crearApi` recibe los dos; `pedirTexto` comparte con
+`pedir` el envío y la traducción de errores, sin zod. `api.embudoCsv()`
+pide `format=csv` y rechaza el rango al revés como `embudo()`. El proxy
+reenvía `Content-Disposition`. Mock: `embudoCsvMock` arma el CSV como el
+back. `features/embudo/components/ExportarEmbudo.tsx` (botones CSV y PDF
+junto al título) y `features/embudo/pdf.ts` (jspdf + jspdf-autotable,
+cargado con `import()` al hacer clic). `nombreArchivoEmbudo()` en
+`claves.ts`; `diaLargo()` y `fechaHoraConAnio()` en `lib/format.ts`.
+`useEmbudo` acepta `enabled`. Dependencias nuevas con versión fija:
+`jspdf@4.2.1`, `jspdf-autotable@5.0.8` (en CLAUDE.md).
+
+Decidido: el formato del CSV, el redondeo y el eco de `filters` se leyeron
+en el código del back (el repo del API es público), no en /openapi.json.
+Eso corrigió el mock de la tarea anterior: redondeaba a 1 decimal (el back
+usa 2, mitad hacia arriba) y devolvía en `filters` cualquier parámetro. El
+nombre del archivo lo arma el front con el rango
+(`embudo_2026-09-01_2026-09-30.csv`, `embudo_todo.pdf`…), no el
+`funnel.csv` del back. El PDF usa el JSON en caché de `useEmbudo`; los
+filtros salen de `filters` de la respuesta, con nombres de agente y
+propiedad cuando se conocen. El API no expone el nombre de la agencia: el
+PDF pone quién lo generó y el id de la agencia. Los botones se deshabilitan
+con el embudo cargando o en placeholder, sin leads, con error o con el
+rango al revés.
+
+Verificado con `USE_MOCKS=true` en una copia del repo (para no pisar el
+`.next` del servidor del 3000; ya borrada): CSV fila por fila igual a la
+tabla de la pantalla, con `\r\n` y el nombre con el rango; texto del PDF
+(título, fecha en Bogotá, filtros, mayor caída, tabla y perdidos) igual a la
+pantalla, en WinAnsi ("•" y "—" bien codificados); una descarga por clic;
+botones apagados con vacío y rango al revés; error del CSV con
+`{ fallaAnalitica: "red" }` y se limpia al reintentar. `tsc`, `eslint` y
+`next build` limpios; `/embudo` queda en 4,9 kB (jspdf fuera del bundle).
+
+Pendiente: el estado "cargando" de los botones al cambiar de filtro casi no
+se ve con mocks (la página llega ya hidratada). No se pudo mirar el PDF
+renderizado en el panel del navegador (el visor no pinta blobs); se revisó
+su contenido y codificación.
+
+## 2026-09-27 — Cierre de HU-08 y HU-17 (estructura), prueba contra el API real
+
+**Hecho.** Con `USE_MOCKS=false` y solo lecturas (no se reasignó ningún
+lead): `/embudo` con rango, operación y agente, y `format=csv`, dan 403
+`"This action requires the TEAM_ADMIN role"` porque el agente demo es
+`AGENT`; la pantalla muestra el aviso de "solo administradores" y la consola
+queda limpia. `GET /agents` y `GET /agents?active=true` dan 404 por el proxy
+y la ruta sigue fuera de `/openapi.json`. `GET /analytics/lost-reasons?days=90`
+respondió con datos reales (6 motivos, `pct` con 2 decimales) y pasa por
+`LostReasonStatSchema`. `/tablero` carga con datos reales y sin errores.
+
+Decidido: no se tocó `FunnelSchema`. Sin token admin no hay respuesta real
+con qué compararlo; se volvió a comparar con `FunnelOut`/`FunnelStageOut` de
+`/openapi.json` y coinciden. La checklist "Cuando exista GET /agents" quedó en
+`docs/SPRINT_LINEA2.md`, bloqueo 7.
+
+Pendiente: ver el embudo y el CSV reales con un `TEAM_ADMIN` (login de la
+etapa 2 o un demo admin en `.env.local`). El estado "pendiente" de
+`useAgentes()` solo se ha visto con mocks: con el demo `AGENT` ninguna
+pantalla pide `/agents` (todo está detrás de `useEsAdmin()`). Con un admin,
+Chrome anotará el 404 como "Failed to load resource" en la consola; eso lo
+hace el navegador, no la app.
+
+## 2026-09-28 — Fix: error de hidratación por "Actualizando…" en el tablero
+
+**Hecho.** `TableroLeads` (tablero y lista de cerrados) mostraba
+`{isFetching && <span>Actualizando…</span>}`. Si el navegador hidrataba
+después de los 30 s de `staleTime` (compilación lenta en dev, pestaña
+oculta), useQuery releía al montar, `isFetching` era true en el primer render
+del cliente y false en el servidor, y React fallaba la hidratación por ese
+`<span>`. Ahora el indicador es `useHidratado() && isFetching`; `ListaCerrados`
+recibe `actualizando` en vez de `isFetching`.
+
+Decidido: `useHidratado` con `useSyncExternalStore` (servidor `false`,
+cliente `true`) en vez de un `useEffect`, para que en navegaciones del lado
+del cliente el indicador salga desde el primer render. Vive dentro de
+`TableroLeads.tsx` porque es el único usuario. Se revisaron los demás
+`isFetching`: `Embudo.tsx` y `MotivosPerdida.tsx` solo lo usan dentro de la
+rama de error, que nunca aparece en el primer render (TanStack no deshidrata
+consultas con error), así que no necesitan cambio.
+
+Pendiente: nada. No se reprodujo el error en el navegador (hay que hidratar
+pasados 30 s); verificado con `tsc` y `lint`.
+
+## 2026-09-28 — `GET /agents` real (HU-08, HU-17): fin del bloqueo 7
+
+**Hecho.** Verificado en `/openapi.json` desplegado que `GET /agents` existe
+(PR #20 del back) y leído `app/routers/agents.py`, `app/services/agent.py` y
+`reassign` en `app/services/lead.py`. Forma real `list[AgentListItem]`
+(`id, agency_id, role, active, full_name`), **sin email**, con `AI_AGENT`
+solo si `include_bots=true` o `role=AI_AGENT`, `limit` ≤ 200 (default 100),
+`offset`, y `agency_id` ajena → 404. Nuevo `AgentListItemSchema` en
+`lib/schemas.ts` (`AgentSchema` sigue siendo el de `/me`); `api.agentes()`
+acepta `active`, `role`, `include_bots`, `limit`, `offset`. `useAgentes()` ya
+no traduce el 404: `EstadoAgentes` queda en disponible | cargando | error.
+Fuera la rama "pendiente" de `SelectorAgente` y `ModalReasignar` y los
+comentarios en `NombreAgente`, `TarjetaLead`, `FiltrosTablero` y
+`FiltrosEmbudo`; `nombreAgente()` usa solo `full_name`. Mock con la forma
+exacta, un bot (`AGENT_ID_BOT`) y los filtros y el 404 del back; reasignar
+al bot da 409 como en el back. Fuera el interruptor `{ sinAgentes }`. Casos
+nuevos en `/api/mocktest`. Contrato: entrada en §3, 409 del bot, §3 bis y la
+fila del 404 de §4 borradas. Bloqueo 7 marcado como resuelto.
+
+Decidido: "pendiente" desaparece: la ruta existe y el único 404 posible es
+el de `agency_id`, que el front no manda, así que si llega es un error real.
+`useAgentes()` pide `limit=200` (el default del API es 100) para no perder
+dueños en una agencia grande; sin bots, porque no pueden ser dueños.
+
+Verificado: `tsc`, `eslint` y `next build` limpios. Con `USE_MOCKS=true`
+(restaurado): casos de `/api/mocktest` (con y sin bots, `role`, paginación,
+409 al bot) y selector de `/tablero` con los 4 humanos. Con `USE_MOCKS=false`
+y el agente de `.env.local` ya `TEAM_ADMIN` (`GET /me`): `GET /agents` real
+trae 8 agentes con exactamente las 5 claves de `AgentListItem`, todos con
+nombre; `/tablero` muestra el selector poblado y el dueño en cada tarjeta;
+`?agente=` filtra (5 leads de Alfonso Vargas) y sobrevive a recargar;
+`/embudo` carga datos reales por primera vez, y el filtro por agente viaja
+como `agent_id` (240 interesados vs 1589 sin filtro) y se cambia desde el
+formulario. Sin errores de zod en consola. Reasignación en vivo, confirmada
+por el usuario, sobre el lead de prueba "Smoke Test User"
+(`5311d3b9-…`, de Yuli Rangel Cuéllar; ninguno de los 22 leads del demo
+parecía de prueba): desde el modal, que no ofrece a la dueña actual, pasó al
+demo (API, "A cargo de" y `GET /leads?agent_id=` lo reflejan); reasignarlo
+otra vez al mismo dueño dio 409 `"Lead is already assigned to that agent"`;
+y desde el modal volvió a Yuli, en INTERESTED como estaba. Quedan dos filas
+en `assignment_audit`. El mock ahora usa los `detail` reales del 404 y el
+409.
+
+Pendiente: el 409 de reasignar muestra el `detail` del API tal cual, en
+inglés (`mensajeErrorReasignar`); falta traducir los tres casos conocidos.
+El 403 no se pudo ver en vivo (el token es admin). CSV y PDF con nombre de
+agente no se descargaron en esta prueba. El error de hidratación de
+`TableroLeads` visto en esta prueba ya está arreglado (entrada anterior).

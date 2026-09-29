@@ -40,10 +40,14 @@ async function reenviar(req: NextRequest, path: string[]) {
   }
 
   const texto = await res.text();
-  return new NextResponse(texto || null, {
-    status: res.status,
-    headers: { "Content-Type": res.headers.get("Content-Type") ?? "application/json" },
-  });
+  const headers: Record<string, string> = {
+    "Content-Type": res.headers.get("Content-Type") ?? "application/json",
+  };
+  // Las descargas (GET /analytics/funnel?format=csv) traen su nombre de archivo.
+  const disposicion = res.headers.get("Content-Disposition");
+  if (disposicion) headers["Content-Disposition"] = disposicion;
+
+  return new NextResponse(texto || null, { status: res.status, headers });
 }
 
 type Ctx = { params: Promise<{ path: string[] }> };

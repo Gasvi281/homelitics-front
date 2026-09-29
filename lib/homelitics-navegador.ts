@@ -22,10 +22,10 @@ import { crearApi, crearPedir } from "./homelitics-nucleo";
 export { HomeliticsError } from "./errores";
 export type { ErrorKind } from "./errores";
 
-const pedir = crearPedir({
+const transporte = crearPedir({
   usarMocks: process.env.NEXT_PUBLIC_USE_MOCKS === "true",
   urlPara: (path) => `/api/homelitics${path}`,
   credenciales: async () => ({}),
 });
 
-export const api = crearApi(pedir);
+export const api = crearApi(transporte);

@@ -1,4 +1,8 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
+import { AgenteActualProvider } from "@/features/agentes/AgenteActual";
+import { obtenerAgenteActual } from "@/lib/agente-actual";
+import type { Agent } from "@/lib/schemas";
 
 /**
  * Layout del grupo (agente): pantallas que requieren identidad de agente, a
@@ -12,7 +16,40 @@ import type { ReactNode } from "react";
  * con `@supabase/ssr`, este es el punto para verificar que hay una sesión de
  * Supabase y redirigir a `/entrar` si no la hay — sin tocar las pantallas de
  * adentro, que ya reciben la credencial a través de `lib/homelitics.ts`.
+ *
+ * Resuelve el agente actual (GET /me) y lo reparte con `AgenteActualProvider`
+ * para que los Client Components sepan su rol (`useEsAdmin()`). Si /me falla,
+ * las pantallas siguen funcionando: solo se esconde lo que es de admin, y
+ * cada pantalla muestra su propio error si el API de verdad no responde.
  */
-export default function AgenteLayout({ children }: { children: ReactNode }) {
-  return <div className="min-h-screen bg-white">{children}</div>;
+export default async function AgenteLayout({ children }: { children: ReactNode }) {
+  let agente: Agent | null = null;
+  try {
+    agente = await obtenerAgenteActual();
+  } catch {
+    agente = null;
+  }
+  // Solo para no mostrar un enlace inútil: el API responde 403 igual.
+  const esAdmin = agente?.role === "TEAM_ADMIN";
+
+  return (
+    <AgenteActualProvider agente={agente}>
+      <div className="min-h-screen bg-white">
+        <header className="border-b border-neutral-200">
+          <nav className="mx-auto flex max-w-7xl items-center gap-6 px-4 py-3 text-sm">
+            <span className="font-semibold text-neutral-900">Homelitics</span>
+            <Link href="/tablero" className="text-neutral-600 hover:text-neutral-900">
+              Tablero de leads
+            </Link>
+            {esAdmin && (
+              <Link href="/embudo" className="text-neutral-600 hover:text-neutral-900">
+                Embudo
+              </Link>
+            )}
+          </nav>
+        </header>
+        {children}
+      </div>
+    </AgenteActualProvider>
+  );
 }
