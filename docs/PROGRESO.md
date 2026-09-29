@@ -1175,3 +1175,24 @@ etapa 2 o un demo admin en `.env.local`). El estado "pendiente" de
 pantalla pide `/agents` (todo está detrás de `useEsAdmin()`). Con un admin,
 Chrome anotará el 404 como "Failed to load resource" en la consola; eso lo
 hace el navegador, no la app.
+
+## 2026-09-28 — Fix: error de hidratación por "Actualizando…" en el tablero
+
+**Hecho.** `TableroLeads` (tablero y lista de cerrados) mostraba
+`{isFetching && <span>Actualizando…</span>}`. Si el navegador hidrataba
+después de los 30 s de `staleTime` (compilación lenta en dev, pestaña
+oculta), useQuery releía al montar, `isFetching` era true en el primer render
+del cliente y false en el servidor, y React fallaba la hidratación por ese
+`<span>`. Ahora el indicador es `useHidratado() && isFetching`; `ListaCerrados`
+recibe `actualizando` en vez de `isFetching`.
+
+Decidido: `useHidratado` con `useSyncExternalStore` (servidor `false`,
+cliente `true`) en vez de un `useEffect`, para que en navegaciones del lado
+del cliente el indicador salga desde el primer render. Vive dentro de
+`TableroLeads.tsx` porque es el único usuario. Se revisaron los demás
+`isFetching`: `Embudo.tsx` y `MotivosPerdida.tsx` solo lo usan dentro de la
+rama de error, que nunca aparece en el primer render (TanStack no deshidrata
+consultas con error), así que no necesitan cambio.
+
+Pendiente: nada. No se reprodujo el error en el navegador (hay que hidratar
+pasados 30 s); verificado con `tsc` y `lint`.
