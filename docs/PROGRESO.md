@@ -1196,3 +1196,52 @@ consultas con error), así que no necesitan cambio.
 
 Pendiente: nada. No se reprodujo el error en el navegador (hay que hidratar
 pasados 30 s); verificado con `tsc` y `lint`.
+
+## 2026-09-28 — `GET /agents` real (HU-08, HU-17): fin del bloqueo 7
+
+**Hecho.** Verificado en `/openapi.json` desplegado que `GET /agents` existe
+(PR #20 del back) y leído `app/routers/agents.py`, `app/services/agent.py` y
+`reassign` en `app/services/lead.py`. Forma real `list[AgentListItem]`
+(`id, agency_id, role, active, full_name`), **sin email**, con `AI_AGENT`
+solo si `include_bots=true` o `role=AI_AGENT`, `limit` ≤ 200 (default 100),
+`offset`, y `agency_id` ajena → 404. Nuevo `AgentListItemSchema` en
+`lib/schemas.ts` (`AgentSchema` sigue siendo el de `/me`); `api.agentes()`
+acepta `active`, `role`, `include_bots`, `limit`, `offset`. `useAgentes()` ya
+no traduce el 404: `EstadoAgentes` queda en disponible | cargando | error.
+Fuera la rama "pendiente" de `SelectorAgente` y `ModalReasignar` y los
+comentarios en `NombreAgente`, `TarjetaLead`, `FiltrosTablero` y
+`FiltrosEmbudo`; `nombreAgente()` usa solo `full_name`. Mock con la forma
+exacta, un bot (`AGENT_ID_BOT`) y los filtros y el 404 del back; reasignar
+al bot da 409 como en el back. Fuera el interruptor `{ sinAgentes }`. Casos
+nuevos en `/api/mocktest`. Contrato: entrada en §3, 409 del bot, §3 bis y la
+fila del 404 de §4 borradas. Bloqueo 7 marcado como resuelto.
+
+Decidido: "pendiente" desaparece: la ruta existe y el único 404 posible es
+el de `agency_id`, que el front no manda, así que si llega es un error real.
+`useAgentes()` pide `limit=200` (el default del API es 100) para no perder
+dueños en una agencia grande; sin bots, porque no pueden ser dueños.
+
+Verificado: `tsc`, `eslint` y `next build` limpios. Con `USE_MOCKS=true`
+(restaurado): casos de `/api/mocktest` (con y sin bots, `role`, paginación,
+409 al bot) y selector de `/tablero` con los 4 humanos. Con `USE_MOCKS=false`
+y el agente de `.env.local` ya `TEAM_ADMIN` (`GET /me`): `GET /agents` real
+trae 8 agentes con exactamente las 5 claves de `AgentListItem`, todos con
+nombre; `/tablero` muestra el selector poblado y el dueño en cada tarjeta;
+`?agente=` filtra (5 leads de Alfonso Vargas) y sobrevive a recargar;
+`/embudo` carga datos reales por primera vez, y el filtro por agente viaja
+como `agent_id` (240 interesados vs 1589 sin filtro) y se cambia desde el
+formulario. Sin errores de zod en consola. Reasignación en vivo, confirmada
+por el usuario, sobre el lead de prueba "Smoke Test User"
+(`5311d3b9-…`, de Yuli Rangel Cuéllar; ninguno de los 22 leads del demo
+parecía de prueba): desde el modal, que no ofrece a la dueña actual, pasó al
+demo (API, "A cargo de" y `GET /leads?agent_id=` lo reflejan); reasignarlo
+otra vez al mismo dueño dio 409 `"Lead is already assigned to that agent"`;
+y desde el modal volvió a Yuli, en INTERESTED como estaba. Quedan dos filas
+en `assignment_audit`. El mock ahora usa los `detail` reales del 404 y el
+409.
+
+Pendiente: el 409 de reasignar muestra el `detail` del API tal cual, en
+inglés (`mensajeErrorReasignar`); falta traducir los tres casos conocidos.
+El 403 no se pudo ver en vivo (el token es admin). CSV y PDF con nombre de
+agente no se descargaron en esta prueba. El error de hidratación de
+`TableroLeads` visto en esta prueba ya está arreglado (entrada anterior).

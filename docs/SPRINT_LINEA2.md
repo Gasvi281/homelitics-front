@@ -105,7 +105,7 @@ se pudo ver con datos**: se comparó `FunnelOut`/`FunnelStageOut` de
 `null`) y el CSV con el código del back. Falta un token `TEAM_ADMIN` (login
 real, etapa 2, o un demo admin en `.env.local`) para cerrar esa prueba.
 `GET /analytics/lost-reasons` sí respondió con datos reales y pasa por zod. El
-filtro por agente depende del bloqueo 7 (`GET /agents`).
+filtro por agente usa `GET /agents`, publicado el 2026-09-28.
 
 ### Arquitectura
 
@@ -260,60 +260,16 @@ construye contra `lib/mock/`.
    HU-06; `GET /leads/{id}`, que usa 2.4, sigue devolviendo `LeadOut` sin
    nombre.
 
-7. **No hay `GET /agents` — encontrado el 2026-09-27 al preparar HU-08 y
-   HU-17.** `/openapi.json` solo tiene rutas `/agents/{agent_id}/...`
-   (disponibilidad, ausencias, slots, calendario); no hay forma de listar los
-   agentes de la agencia. Se le pidió a L1 (Luis) con esta forma:
-   `list[AgentOut]` (`id`, `agency_id`, `role`, `active`, `full_name`,
-   `email`), filtrado por la agencia del token, sin `AI_AGENT`, con
-   `?active=true` opcional. Está en `docs/API_CONTRACT.md`, sección 3 bis,
-   marcado como propuesto.
-
-   Qué bloquea:
-   - **HU-08 (reasignar):** `POST /leads/{id}/reassign` existe, pero sin la
-     lista no hay de dónde sacar el `to_agent_id`. La pantalla está hecha y
-     probada con mocks (`features/reasignar/`, 2026-09-27); contra el API real
-     el botón aparece pero el modal no deja confirmar. El selector
-     (`features/agentes/components/SelectorAgente.tsx`) se muestra
-     deshabilitado con "Disponible cuando el API liste los agentes".
-   - **HU-17 (embudo):** el filtro por agente de `GET /analytics/funnel`
-     (`agent_id`) no tiene con qué poblarse. El resto de filtros sí.
-   - **Nombre del dueño de un lead** en el tablero y el detalle: hoy solo hay
-     `agent_id`. `NombreAgente` no pinta nada mientras tanto.
-
-   Cómo se sostiene mientras tanto: `useAgentes()`
-   (`features/agentes/hooks.ts`) traduce el 404 de esa ruta a un estado
-   `"pendiente"`, sin reintentar. Con `USE_MOCKS=true` la ruta sí responde
-   (4 agentes), para maquetar el caso con datos. Cuando L1 la publique,
-   ninguna pantalla cambia.
-
-   Verificado contra el API real el 2026-09-27: `GET /agents` y
-   `GET /agents?active=true` responden 404 `{"detail":"Not Found"}` a través
-   del proxy, y la ruta sigue sin estar en `/openapi.json`. Con el agente demo
-   (`AGENT`) ninguna pantalla llega a pedirla: el selector, el nombre del
-   dueño y el modal de reasignar están detrás de `useEsAdmin()`, y `/embudo`
-   se queda en el 403. Por eso el estado "pendiente" solo se ha visto con
-   mocks; con un admin real, Chrome va a anotar el 404 como "Failed to load
-   resource" en la consola (lo hace el navegador con cualquier respuesta 4xx,
-   no la app), pero la pantalla no debe mostrar error. No se reasignó ningún
-   lead real.
-
-   **Cuando exista `GET /agents`:**
-   - [ ] (a) Verificar la forma contra `/openapi.json` (campos, `role` sin
-     `AI_AGENT`, `?active=true`, filtrado por agencia) y mover la entrada de
-     la sección 3 bis ("PROPUESTO") a la sección 3 de
-     `docs/API_CONTRACT.md`; quitar la fila de "Lista de agentes → 404" de la
-     sección 4. Si la forma difiere, ajustar `AgentSchema` y el mock.
-   - [ ] (b) Quitar la traducción 404 → `"pendiente"` en `useAgentes()`
-     (`features/agentes/hooks.ts`, el TODO) y el estado `"pendiente"` de
-     `EstadoAgentes`, `SelectorAgente` y `NombreAgente`, y la opción
-     `sinAgentes` de `lib/mock/index.ts`.
-   - [ ] (c) Probar la reasignación en vivo con un lead de prueba (nunca un
-     lead real de la agencia), con un token `TEAM_ADMIN`: el lead cambia de
-     dueño, el tablero lo refleja y el 409/403 se ven como en el contrato.
-   - [ ] (d) Probar el filtro por agente en `/embudo` y `/tablero` contra el
-     API real: la URL con `?agente=` filtra, recargar no lo pierde y el CSV y
-     el PDF llevan el nombre del agente.
+7. ~~No hay `GET /agents`~~ — **resuelto el 2026-09-28.** L1 la publicó
+   (PR #20 del back) con otra forma que la propuesta: `AgentListItem`, sin
+   `email`; ver `docs/API_CONTRACT.md`, sección 3. El front ya la consume y el
+   estado "pendiente" de `useAgentes()` se quitó. Prueba en vivo con un token
+   `TEAM_ADMIN` el 2026-09-28:
+   - [x] Reasignar un lead de prueba ida y vuelta: cambia de dueño, el
+     tablero lo refleja y el 409 llega como en el contrato. Falta ver el 403
+     (necesita un token `AGENT`) y traducir el `detail` del 409.
+   - [x] Filtro por agente en `/tablero` y `/embudo`: la URL con `?agente=`
+     filtra y recargar no lo pierde. Falta ver el nombre en el CSV y el PDF.
 
 ### Nota sobre 2.1: qué tan fiel es la grilla al prototipo
 

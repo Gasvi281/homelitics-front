@@ -480,7 +480,9 @@ Errores (todos con la forma simple `{"detail": "..."}`, `Message`):
 - **403** — quien llama no es `TEAM_ADMIN`.
 - **404** — el agente destino no es de la agencia (o el lead no existe / es
   de otra agencia, como en todo el API).
-- **409** — el agente destino está desactivado, o ya es el dueño del lead.
+- **409** — el agente destino está desactivado, es un bot (`AI_AGENT`,
+  `"Cannot assign a lead to an AI agent"`, leído en `app/services/lead.py`
+  del back el 2026-09-28), o ya es el dueño del lead.
 - **422** — `to_agent_id` falta o no es un uuid (array de Pydantic).
 
 **No escribe interacción** (verificado contra `/openapi.json` el 2026-09-27:
@@ -489,8 +491,38 @@ el historial del lead ni cambia `last_interaction` de la tarjeta. Tampoco
 notifica al agente nuevo, y las tareas abiertas se quedan con el anterior
 (decisión del back, DECISIONS §20).
 
-El front no tiene cómo sacar la lista de agentes destino: ver
-`GET /agents` en la sección 3 bis (propuesto, **no existe**).
+Los agentes destino salen de `GET /agents`, justo abajo.
+
+### `GET /agents` — **HU-08, HU-17**
+Confirmado contra `/openapi.json` desplegado el 2026-09-28 (PR #20 del back,
+`app/routers/agents.py`). Cualquier agente autenticado puede llamarla. Los
+agentes de la agencia del token, **más viejos primero**
+(`list[AgentListItem]`):
+```json
+[{ "id":"uuid", "agency_id":"uuid", "role":"AGENT|TEAM_ADMIN|AI_AGENT",
+   "active":true, "full_name":"Paula Gómez" }]
+```
+- `full_name` es `string | null` (sale de la persona asociada; `null` si no
+  tiene). En `/openapi.json` no está en `required` porque tiene default
+  `None`, pero siempre viene.
+- **Sin `email` ni ningún dato de contacto**, y no es `AgentOut`: en el front
+  es `AgentListItemSchema`; `AgentSchema` sigue siendo el de `GET /me`.
+
+Query, todos opcionales:
+
+| Parámetro | Tipo | Nota |
+|---|---|---|
+| `active` | bool | `true` solo activos, `false` solo desactivados; sin él, todos |
+| `role` | `AGENT` \| `TEAM_ADMIN` \| `AI_AGENT` | `role=AI_AGENT` trae los bots aunque falte `include_bots` |
+| `include_bots` | bool | por defecto `false`: los `AI_AGENT` no salen (no pueden ser dueños de un lead) |
+| `agency_id` | uuid | solo la propia; **otra da 404** (`"Agency not found"`). El front no la manda |
+| `limit` | int | 1–200, por defecto **100** |
+| `offset` | int | ≥ 0 |
+
+**Difiere de lo que se había propuesto** (2026-09-27, `list[AgentOut]` igual
+a `/me`): no trae `email`, `role` admite `AI_AGENT` (con `include_bots`) y la
+ruta pagina. `useAgentes()` (`features/agentes/hooks.ts`) pide `limit=200`
+sin bots, activos e inactivos, en una sola petición.
 
 ### `GET /analytics/funnel` — **HU-17**
 Confirmado contra `/openapi.json` el 2026-09-27. **Solo `TEAM_ADMIN`.**
@@ -585,36 +617,6 @@ ej. `23.53`).
 operación): solo `days`. La pantalla de HU-17 le pone su propio selector y lo
 dice en pantalla.
 
-## 3 bis. PROPUESTO — aún no existe en el API
-
-> **Nada de esta sección existe todavía.** Es lo que se le pidió a L1
-> (Luis) el 2026-09-27. Verificado contra `/openapi.json` ese mismo día:
-> no hay `GET /agents` (solo las rutas `/agents/{agent_id}/...` de
-> disponibilidad, ausencias, slots y calendario). El front lo consume de
-> forma que un 404 se muestre como "pendiente", no como error — ver
-> `features/agentes/hooks.ts`. Cuando exista, verificar la forma real y
-> mover esta entrada a la sección 3 (checklist completa en
-> `docs/SPRINT_LINEA2.md`, bloqueo 7). Vuelto a probar contra el API real
-> el 2026-09-27: `GET /agents` y `GET /agents?active=true` dan 404
-> `{"detail":"Not Found"}`.
-
-### `GET /agents?active=true` — **HU-08, HU-17** · PROPUESTO
-
-- Respuesta: `list[AgentOut]`, la misma forma que `GET /me`:
-  ```json
-  [{ "id":"uuid", "agency_id":"uuid", "role":"AGENT|TEAM_ADMIN",
-     "active":true, "full_name":"...", "email":"..." }]
-  ```
-- Filtrado por la agencia del token (nunca se manda `agency_id`).
-- **Sin** filas `AI_AGENT`. `AgentOut` en `/openapi.json` sí admite
-  `AI_AGENT` en `role`, pero esta ruta lo excluiría; por eso
-  `AgentSchema` en `lib/schemas.ts` se queda en `AGENT | TEAM_ADMIN`.
-- `?active=true` opcional: solo agentes activos. Sin el parámetro, todos.
-
-Para qué hace falta: el selector de agente destino de la reasignación
-(HU-08), el filtro por agente del embudo (HU-17) y mostrar el nombre del
-dueño de un lead (hoy solo hay `agent_id`).
-
 ## 4. Errores que sí cambian la UI
 
 | Situación | Código | Qué hace el front |
@@ -631,8 +633,7 @@ dueño de un lead (hoy solo hay `agent_id`).
 | Rango de fechas al revés en el tablero | 422 en `GET /leads` | Validar el filtro antes de pedir; no llamar al API con `created_from > created_to`. |
 | Token vencido | 401 | Renovar en `lib/session.ts`, reintentar una vez. |
 | Reasignar o ver el embudo sin ser `TEAM_ADMIN` | 403 en `POST .../reassign` y `GET /analytics/funnel` | No mostrar la acción a quien no es admin (`useEsAdmin()`); si igual llega el 403, decirlo sin reintentar. |
-| Reasignar a un agente desactivado, o al que ya es dueño | 409 en `POST .../reassign` | Releer la lista de agentes y pedir que elija otro. |
-| Lista de agentes | 404 en `GET /agents` (la ruta no existe todavía) | Selector deshabilitado con "Disponible cuando el API liste los agentes". No es un error. |
+| Reasignar a un agente desactivado, a un bot, o al que ya es dueño | 409 en `POST .../reassign` | Releer la lista de agentes y pedir que elija otro. |
 
 ## 5. Enumeraciones
 
@@ -648,7 +649,7 @@ dueño de un lead (hoy solo hay `agent_id`).
 | Estado de listing | `ACTIVE`, `PAUSED`, `CLOSED` |
 | Razón de pérdida | `PRICE`, `LOCATION`, `BOUGHT_ELSEWHERE`, `NO_RESPONSE`, `FINANCING`, `OTHER` — confirmado contra `/openapi.json` (`TransitionCreate`, `LostReasonOut`) el 2026-09-27. No hay endpoint que dé las etiquetas: el texto en español lo pone el front. |
 | Objeción | `PRICE`, `SIZE`, `LOCATION`, `CONDITION`, `HOA_FEE`, `OTHER` |
-| Rol de agente | `AGENT`, `TEAM_ADMIN` — `AgentOut` en `/openapi.json` admite también `AI_AGENT` (confirmado el 2026-09-27), pero `/me` con un token humano y el `GET /agents` propuesto nunca lo devuelven. Si alguna vez llega, zod falla a propósito. |
+| Rol de agente | `AGENT`, `TEAM_ADMIN` — `AgentOut` en `/openapi.json` admite también `AI_AGENT` (confirmado el 2026-09-27), pero `/me` con un token humano nunca lo devuelve: `AgentSchema` lo deja fuera y, si alguna vez llega, zod falla a propósito. `GET /agents` sí lo devuelve con `include_bots=true` o `role=AI_AGENT`, y por eso `AgentListItemSchema` lo admite. |
 | Día de la semana | `0` lunes … `6` domingo |
 
 ## 6. Lo que el API NO tiene
@@ -666,9 +667,8 @@ dueño de un lead (hoy solo hay `agent_id`).
 - No hay `GET /properties`: el filtro `property_id` de `GET /leads` existe,
   pero la lista de inmuebles para elegir hay que armarla desde
   `GET /listings` (cada listing trae su `property_id`).
-- No hay `GET /agents` (ni `GET /agents/{id}`): no se puede listar los
-  agentes de la agencia ni resolver un `agent_id` a un nombre. Pedido a L1
-  el 2026-09-27; la forma propuesta está en la sección 3 bis.
+- No hay `GET /agents/{id}`: un `agent_id` se resuelve a nombre buscándolo
+  en `GET /agents` (sección 3), que existe desde el 2026-09-28.
 
 **Corrección 2026-09-10:** este documento decía que no había endpoint para leer
 el historial de transiciones. Es falso — `GET /leads/{lead_id}/transitions`
