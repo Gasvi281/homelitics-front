@@ -11,6 +11,9 @@ Antes de escribir código lee, en este orden:
    ahí, **no existe**: no inventes endpoints ni campos.
 2. `docs/SPRINT_LINEA2.md` — las tareas 2.0 a 2.6, sus criterios de "done" y las
    cinco pantallas con su contenido.
+3. `docs/SPRINT_E3_LINEA2.md` — **obligatorio para las tareas 2.13 en
+   adelante** (épica E3: HU-10 a HU-13). Sus tareas, criterios de "done" y
+   los bloqueos 8 a 14, que continúan los de `docs/SPRINT_LINEA2.md`.
 
 ## La regla que más importa
 
@@ -102,10 +105,12 @@ una base de datos local, y la app se niega a arrancar con ese modo si no es así
 
 ## Estado actual
 
-Esqueleto. Existen `lib/session.ts`, `lib/homelitics.ts`, `lib/schemas.ts`,
-`lib/format.ts` y el proxy. Faltan las pantallas y los mocks. El prototipo visual
-de referencia (datos falsos, HTML suelto) muestra cómo se ven las cinco
-pantallas; `docs/SPRINT_LINEA2.md` lo describe en texto.
+Tareas 2.0 a 2.12 hechas y probadas contra el API real (`docs/PROGRESO.md`).
+Cliente: ficha y selector de horarios (2.1), confirmar la cita (2.2), mover o
+cancelar (2.3) y encuesta post-visita (2.5). Agente: historial del lead con
+etapa y lead perdido (2.4, HU-09), tablero con filtros y drag & drop (HU-06),
+reasignar (HU-08) y embudo con CSV/PDF (HU-17, solo `TEAM_ADMIN`). Mocks
+completos en `lib/mock/`. Sigue pendiente la etapa 2 de `lib/session.ts`.
 
 ## Cómo trabajar aquí
 
