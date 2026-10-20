@@ -190,6 +190,40 @@ campos de la tarjeta.
 
 ### `GET /leads/{lead_id}` · `GET /leads/at-risk?hours=&limit=`
 
+`GET /leads/{lead_id}` devuelve `LeadOut`.
+
+**`GET /leads/at-risk` — HU-10, HU-13.** Confirmado contra `/openapi.json` y
+contra `routers/leads.py` y `services/lead.py` del API el 2026-10-13.
+Responde `list[LeadOut]` (los 8 campos, sin `client_name` ni dirección: la
+propiedad sale de cruzar `listing_id` con `GET /listings`).
+
+| Parámetro | Rango | Si no se manda |
+|---|---|---|
+| `hours` | entero 1–8760 (o `null`) | `INACTIVITY_HOURS` del API, que por defecto es **72** |
+| `limit` | entero 1–500 | 100 |
+
+- **El front siempre manda `hours`.** HU-10 pide 24 h y el default del API es
+  72: un `hours` omitido cambia el resultado sin avisar.
+  `api.leadsEnRiesgo({ hours, limit })` lo exige en el tipo y rechaza un
+  valor fuera de rango sin llamar al API.
+- **Filtra por agencia, no por agente** (`Agent.agency_id == agente.agency_id`).
+  Un `AGENT` recibe también los leads de sus compañeros: si la pantalla
+  quiere solo los suyos, filtra por `agent_id` ella misma.
+- Un lead está en riesgo si cumple las tres:
+  1. su etapa no es terminal (`WON`, `LOST`);
+  2. se creó **antes** del corte (`created_at < ahora - hours`): un lead más
+     nuevo que la ventana nunca está en riesgo;
+  3. no tiene respuesta desde el corte. Respuesta es una interacción
+     `OUTBOUND` de tipo `MESSAGE` o `CALL` cuyo autor **no** es un
+     `AI_AGENT`. Las notas, los `STATUS_CHANGE` y lo que escribe el bot no
+     cuentan. Un `created_by` nulo cuenta como humano (es un outer join).
+- Ordenado por `created_at` ascendente (más viejos primero) y cortado en
+  `limit`. Sin filtros de fecha, propiedad ni agente, y sin paginación: con
+  500 resultados puede faltar algo.
+- Es el mismo predicado del barrido horario (`core.sweep_inactive_leads`),
+  expuesto para ver la cola sin esperar al barrido.
+- Errores: 422 con `hours` o `limit` fuera de rango o no enteros.
+
 ### `POST /leads` — crear o devolver
 `{"client_id","listing_id","source_channel":"TELEGRAM|IN_APP|CALL","message":"..."}`
 - **201** nuevo. **200** ya existía, devuelve el mismo lead (el par
@@ -336,6 +370,23 @@ En `OUTBOUND` el `created_by` queda en el agente; en `INBOUND` queda nulo.
 ### `GET /leads/{lead_id}/tasks` · `POST` · `PATCH .../tasks/{task_id}`
 `POST`: `{"due_at":"...","note":"<=1000 chars"}`.
 `PATCH`: al menos uno de `status` (`PENDING|DONE|SNOOZED`), `due_at`, `note`.
+
+Confirmado contra `/openapi.json` (`TaskCreate`, `TaskPatch`) y contra
+`app/schemas.py` y `services/lead.py` del API el 2026-10-13:
+
+- `POST` responde **201** con `TaskOut`. `due_at` obligatorio, `note`
+  opcional y nullable (máx. 1000). La tarea nace `PENDING` y su `agent_id`
+  es el **dueño del lead**, no quien la crea. El API **no** rechaza un
+  `due_at` en el pasado.
+- `PATCH` responde 200 con `TaskOut`. Los tres campos son nullable y un
+  `null` significa "no lo toques": no hay forma de borrar una nota.
+- El `model_validator` de `TaskPatch` exige al menos uno **distinto de
+  `null`**: `{}` y `{"note": null}` dan 422 con
+  `{"detail":[{"type":"value_error","loc":["body"],"msg":"Value error, provide at least one of: status, due_at, note",...}]}`.
+  Como Pydantic corre antes del handler, ese 422 sale aunque el lead no
+  exista. `PatchTaskBody` en `lib/schemas.ts` lo replica.
+- 404 `"Task not found"` si la tarea no es de ese lead; 404 si el lead es
+  de otra agencia.
 
 Forma exacta de una tarea, confirmada contra `/openapi.json` el 2026-09-10:
 trae también `agent_id` y `created_at`, ninguno documentado antes:

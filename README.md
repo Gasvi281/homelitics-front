@@ -300,7 +300,7 @@ Con `USE_MOCKS=true`, estos son los ids fijos (`lib/mock/index.ts`):
 | `AGENT_ID_INACTIVO` (Carlos Úsuga, desactivado: reasignarle da 409) | `a10a1000-0000-4000-8000-000000000020` |
 | `AGENT_ID_BOT` (Asistente Homelitics, `AI_AGENT`: solo sale con `include_bots=true`; reasignarle da 409) | `a10a1000-0000-4000-8000-000000000021` |
 
-El tablero trae 14 leads de ejemplo repartidos en las seis etapas (3 en
+El tablero trae 15 leads de ejemplo repartidos en las seis etapas (4 en
 Interesado, 3 en Visita agendada, 2 en Visitó, 2 en Negociando, 2 ganados y
 2 perdidos), repartidos entre los cuatro agentes humanos. El embudo, además,
 suma una cohorte histórica de unos 120 leads que solo existe para analítica

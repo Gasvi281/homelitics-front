@@ -18,7 +18,20 @@ export function formatPrecio(monto: string): string {
   }).format(n);
 }
 
-const PORCENTAJE = new Intl.NumberFormat("es-CO", { style: "percent", maximumFractionDigits: 1 });
+/**
+ * "650137717.50" -> "$650.137.718", sin pasar por `Number`: redondea al peso
+ * con aritmética de enteros sobre el string. Es para texto que sale de la app
+ * (plantillas, HU-12), donde un monto grande no puede perder precisión.
+ * Devuelve `null` si el monto no tiene la forma del API.
+ */
+export function precioEnTexto(monto: string): string | null {
+  const m = /^(\d+)(?:\.(\d{1,2}))?$/.exec(monto);
+  if (!m) return null;
+  const pesos = BigInt(m[1]) + (m[2] && m[2][0] >= "5" ? BigInt(1) : BigInt(0));
+  return "$" + pesos.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+const PORCENTAJE =new Intl.NumberFormat("es-CO", { style: "percent", maximumFractionDigits: 1 });
 
 /** 45.5 -> "45,5 %". El API manda los porcentajes de 0 a 100, o `null` -> "—". */
 export function formatPorcentaje(pct: number | null): string {
@@ -33,6 +46,11 @@ export function horaLocal(iso: string): string {
 /** "2026-09-17T15:30:00Z" -> "jueves 17 de septiembre, 10:30" */
 export function fechaHoraLarga(iso: string): string {
   return formatInTimeZone(iso, TZ, "EEEE d 'de' MMMM, HH:mm", { locale: es });
+}
+
+/** "2026-09-17T15:30:00Z" -> "jueves 17 de septiembre", el día en hora de Bogotá. */
+export function fechaLarga(iso: string): string {
+  return formatInTimeZone(iso, TZ, "EEEE d 'de' MMMM", { locale: es });
 }
 
 /**

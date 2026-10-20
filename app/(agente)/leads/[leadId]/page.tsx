@@ -5,6 +5,7 @@ import { Aviso } from "@/components/Aviso";
 import { EtapaLead } from "@/components/EtapaLead";
 import { ETIQUETA_CANAL } from "@/components/TarjetaCita";
 import { HistorialLead } from "@/components/HistorialLead";
+import { PanelSeguimiento } from "@/features/seguimiento/components/PanelSeguimiento";
 import {
   claveCitasLead, claveInteracciones, claveLead, claveTareasLead, claveTransiciones,
 } from "@/features/tablero-leads/claves";
@@ -22,6 +23,10 @@ import {
  * marcar el lead como perdido lo invalida y relee todo desde el navegador.
  * El log de transiciones (para saber hasta dónde llegó un lead perdido) no
  * es imprescindible: si falla, el embudo lo dice sin él y la página sigue.
+ *
+ * Al lado del historial va el panel de seguimiento (2.19 — HU-11): lee las
+ * mismas tareas sembradas con `claveTareasLead`, así que un recordatorio
+ * nuevo aparece en los dos.
  *
  * El nombre del cliente NO se muestra: `LeadSchema` solo trae `client_id`
  * (uuid) y el API no tiene forma de resolver un cliente a un nombre
@@ -82,15 +87,21 @@ export default async function LeadPage({
           <EtapaLead leadInicial={lead} />
         </div>
 
-        <h2 className="mt-8 text-base font-semibold text-neutral-900">Historial</h2>
-        <HistorialLead leadId={lead.id} />
+        {/* Historial y seguimiento lado a lado; en pantallas angostas el panel va debajo. */}
+        <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
+          <div>
+            <h2 className="text-base font-semibold text-neutral-900">Historial</h2>
+            <HistorialLead leadId={lead.id} />
+          </div>
+          <PanelSeguimiento leadId={lead.id} listing={listing} ahoraInicial={new Date().toISOString()} />
+        </div>
       </HydrationBoundary>
     </Contenedor>
   );
 }
 
 function Contenedor({ children }: { children: React.ReactNode }) {
-  return <main className="mx-auto max-w-3xl px-4 py-8">{children}</main>;
+  return <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>;
 }
 
 function mensajeError(e: unknown): string {

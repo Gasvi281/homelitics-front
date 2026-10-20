@@ -277,6 +277,32 @@ export const CreateTransitionBody = z.object({
   }
 });
 
+/**
+ * POST /leads/{id}/tasks (`TaskCreate`), HU-11. Confirmado contra
+ * /openapi.json y app/schemas.py del API el 2026-10-13. El API no rechaza un
+ * `due_at` en el pasado: eso lo frena el formulario (tarea 2.19).
+ */
+export const CreateTaskBody = z.object({
+  due_at: instant,
+  note: z.string().max(1000, "La nota admite hasta 1000 caracteres.").nullable().optional(),
+});
+
+/**
+ * PATCH /leads/{id}/tasks/{task_id} (`TaskPatch`), HU-11. Replica el
+ * `model_validator` del API (`_something_to_do` en app/schemas.py, leído el
+ * 2026-10-13): al menos uno de `status`, `due_at`, `note` distinto de `null`.
+ * Para el API un `null` es "no lo toques", así que `{ note: null }` no borra
+ * la nota: da 422 igual que `{}`.
+ */
+export const PatchTaskBody = z.object({
+  status: TaskStatus.nullable().optional(),
+  due_at: instant.nullable().optional(),
+  note: z.string().max(1000, "La nota admite hasta 1000 caracteres.").nullable().optional(),
+}).refine(
+  v => v.status != null || v.due_at != null || v.note != null,
+  "Hay que cambiar al menos una cosa: estado, fecha o nota.",
+);
+
 /** Cuerpo de POST /leads/{id}/reassign (`ReassignRequest`, HU-08). */
 export const ReassignBody = z.object({
   to_agent_id: z.string().uuid("Elige un agente de la lista."),
@@ -361,6 +387,8 @@ export type Appointment = z.infer<typeof AppointmentSchema>;
 export type AppointmentDetail = z.infer<typeof AppointmentDetailSchema>;
 export type Interaction = z.infer<typeof InteractionSchema>;
 export type Task = z.infer<typeof TaskSchema>;
+export type CreateTaskBody = z.input<typeof CreateTaskBody>;
+export type PatchTaskBody = z.input<typeof PatchTaskBody>;
 export type Feedback = z.infer<typeof FeedbackSchema>;
 export type AppointmentStatus = z.infer<typeof AppointmentStatus>;
 export type Channel = z.infer<typeof Channel>;

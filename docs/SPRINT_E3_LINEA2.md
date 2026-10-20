@@ -113,7 +113,8 @@ que crea el sistema (punto 7 de los hechos). Mientras no exista
 
 **Edición persistente de las plantillas (AC1):** su lugar definitivo es
 `agency_settings.bot.templates` (migración 012, bloqueo 8). Mientras tanto
-hay dos opciones; decidir antes de 2.22:
+hay dos opciones; decidir antes de 2.22 (**decidido el 2026-10-20: (b)**,
+en `features/plantillas/almacen.ts`):
 
 - **(a)** Solo edición por mensaje, que es lo que ya cubre 2.22.
 - **(b)** Guardar los cambios del agente en `localStorage`, aislado en un
@@ -143,7 +144,7 @@ para mandarlos por Telegram. Ver bloqueo 13.
 | HU-11 | AC1 fecha, hora y nota | 2.19 | Sí |
 | HU-11 | AC2 aviso a la hora programada | 2.19 (en el lead), 2.26 (global) | Parcial; completo cuando exista `GET /tasks` |
 | HU-11 | AC3 posponer y completar | 2.20 | Sí |
-| HU-12 | AC1 4 plantillas editables | 2.21, 2.22 | Sí; persistencia según la decisión (a)/(b) |
+| HU-12 | AC1 4 plantillas editables | 2.21, 2.22 | Sí; persistencia (b): solo en este navegador hasta la migración 012 |
 | HU-12 | AC2 variables dinámicas | 2.21 | Sí, salvo `client_name` (bloqueo 12) |
 | HU-12 | AC3 enviar con un clic | 2.23 | Parcial: copiar y registrar |
 | HU-13 | AC1 agrupado por agente | 2.17 | Sí |
@@ -177,6 +178,12 @@ Continúa la numeración de `docs/SPRINT_LINEA2.md` (llegó hasta el 7).
     riesgo" y "mis recordatorios" se calculan con el agente demo de
     `.env.local`. Para probar la vista de admin hace falta ese agente en
     `TEAM_ADMIN`.
+15. **at-risk no dice desde cuándo no hay respuesta.** `LeadOut` no trae la
+    fecha de la última respuesta humana, así que la columna "días sin
+    respuesta" del CSV y el PDF (2.18) se cuenta desde `created_at` y se
+    rotula "(máximo)": si alguien contestó antes del corte, lleva menos
+    (nunca menos que el umbral). Lo resolvería un `last_response_at` en la
+    respuesta de at-risk o en `GET /analytics/at-risk-by-agent` (2.27).
 
 ## Orden sugerido
 

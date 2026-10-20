@@ -29,15 +29,24 @@ const ETIQUETA_TIPO: Record<LastInteraction["type"], string> = {
  *
  * Al admin le dice quién atiende el lead (HU-08). Mientras la lista de
  * agentes carga (o si falla) `NombreAgente` no pinta nada y no ocupa espacio.
+ *
+ * En riesgo (2.15 — HU-10 AC3): borde rojo y, para no depender solo del
+ * color, la etiqueta "Sin respuesta hace más de {umbral} h" con su ícono.
  */
 export function TarjetaLead({
   lead,
   pendiente = false,
+  enRiesgo = false,
+  umbral,
   descripcion,
 }: {
   lead: LeadCard;
   /** Hay un cambio de etapa en vuelo para este lead. */
   pendiente?: boolean;
+  /** GET /leads/at-risk lo devolvió con el umbral vigente. */
+  enRiesgo?: boolean;
+  /** Horas del umbral, para la etiqueta. Solo se lee con `enRiesgo`. */
+  umbral?: number;
   /** `aria-describedby` con las instrucciones de arrastre por teclado. */
   descripcion?: string;
 }) {
@@ -52,9 +61,31 @@ export function TarjetaLead({
       aria-describedby={descripcion}
       aria-busy={pendiente || undefined}
       className={`block select-none rounded-lg border bg-white p-3 focus-visible:outline-2 focus-visible:outline-neutral-900 ${
-        pendiente ? "animate-pulse border-dashed border-neutral-400" : "border-neutral-200 hover:border-neutral-400"
+        pendiente
+          ? "animate-pulse border-dashed border-neutral-400"
+          : enRiesgo
+            ? "border-red-500 ring-1 ring-red-500 hover:border-red-700 hover:ring-red-700"
+            : "border-neutral-200 hover:border-neutral-400"
       }`}
     >
+      {enRiesgo && (
+        <p className="mb-2 flex items-center gap-1 text-xs font-medium text-red-700">
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            className="h-3.5 w-3.5 shrink-0"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7v5l3 2" />
+          </svg>
+          Sin respuesta hace más de {umbral} h
+        </p>
+      )}
       <p className="flex items-start justify-between gap-2 text-sm font-medium text-neutral-900">
         {lead.client_name ?? "Cliente sin nombre registrado"}
         {pendiente && <span className="shrink-0 text-xs font-normal text-neutral-500">Moviendo…</span>}

@@ -15,7 +15,7 @@ import {
   FunnelSchema, InteractionSchema, LeadCardSchema, LeadSchema, ListingSchema,
   LostReasonStatSchema, SlotsSchema, TaskSchema, TransitionSchema,
   CreateAppointmentBody, CreateFeedbackBody, CreateInteractionBody,
-  CreateTransitionBody, PatchAppointmentBody, ReassignBody,
+  CreateTaskBody, CreateTransitionBody, PatchAppointmentBody, PatchTaskBody, ReassignBody,
   type AgentListItem, type OperationType, type Stage,
 } from "./schemas";
 
@@ -62,7 +62,37 @@ function rechazarRangoAlReves(desde?: string, hasta?: string) {
   }
 }
 
-export type Pedir = <T>(path: string, schema: z.ZodType<T>, init?: RequestInit) => Promise<T>;
+/**
+ * Valida un cuerpo o una query antes de enviarlos. Si falla sale como
+ * `HomeliticsError("invalido")`, igual que el 422 del API, sin llamarlo.
+ */
+function validarAntes<S extends z.ZodTypeAny>(schema: S, valor: unknown): z.output<S> {
+  const valido = schema.safeParse(valor);
+  if (!valido.success) {
+    throw new HomeliticsError("invalido", valido.error.issues.map(i => i.message).join("; "), 422);
+  }
+  return valido.data;
+}
+
+/**
+ * Query de GET /leads/at-risk (HU-10, HU-13). `hours` es obligatorio a
+ * propósito: sin él el API usa `INACTIVITY_HOURS` (72) y HU-10 pide 24 o el
+ * umbral que elija el usuario. Ver docs/API_CONTRACT.md §3.
+ */
+export type ParamsLeadsEnRiesgo = {
+  /** Entero 1–8760. */
+  hours: number;
+  /** Entero 1–500; el API usa 100 si no se manda. */
+  limit?: number;
+};
+
+const ParamsLeadsEnRiesgo = z.object({
+  hours: z.number().int("El umbral va en horas enteras.")
+    .min(1, "El umbral va de 1 a 8760 horas.").max(8760, "El umbral va de 1 a 8760 horas."),
+  limit: z.number().int().min(1, "El límite va de 1 a 500.").max(500, "El límite va de 1 a 500.").optional(),
+});
+
+export type Pedir =<T>(path: string, schema: z.ZodType<T>, init?: RequestInit) => Promise<T>;
 
 async function traducirError(res: Response): Promise<HomeliticsError> {
   let detail = res.statusText;
@@ -305,6 +335,19 @@ export function crearApi({ pedir, pedirTexto }: Transporte) {
     },
 
     /**
+     * HU-10 y HU-13. Leads no terminales sin respuesta humana (`MESSAGE` o
+     * `CALL` `OUTBOUND` que no escribió un `AI_AGENT`) en las últimas `hours`
+     * y creados antes de esa ventana. `LeadOut`, más viejos primero, cortado
+     * en `limit`. Es de TODA la agencia: si la pantalla quiere solo los del
+     * agente, filtra por `agent_id` ella misma. Un `hours` o `limit` fuera de
+     * rango se rechaza aquí, sin llamar al API.
+     */
+    leadsEnRiesgo: async (q: ParamsLeadsEnRiesgo) => {
+      const { hours, limit } = validarAntes(ParamsLeadsEnRiesgo, q);
+      return pedir(`/leads/at-risk?${query({ hours, limit })}`, z.array(LeadSchema));
+    },
+
+    /**
      * Tarea 2.1. OJO: el agente correcto es el del LEAD, no el del listing.
      * `desde` y `hasta` en ISO UTC; el API responde 422 si desde >= hasta.
      */
@@ -351,6 +394,27 @@ export function crearApi({ pedir, pedirTexto }: Transporte) {
       }),
 
     tareas: (leadId: string) => pedir(`/leads/${leadId}/tasks`, z.array(TaskSchema)),
+
+    /**
+     * HU-11. Nace `PENDING` y a nombre del dueño del lead, no de quien la
+     * crea. El API acepta un `due_at` en el pasado: lo frena el formulario.
+     */
+    crearTarea: async (leadId: string, body: z.input<typeof CreateTaskBody>) =>
+      pedir(`/leads/${leadId}/tasks`, TaskSchema, {
+        method: "POST",
+        body: JSON.stringify(validarAntes(CreateTaskBody, body)),
+      }),
+
+    /**
+     * HU-11. Hecho, pospuesto o editado. Un cuerpo sin ningún campo (o con
+     * todos en `null`) se rechaza aquí, como el 422 del API. 404 si la tarea
+     * no es de ese lead.
+     */
+    actualizarTarea: async (leadId: string, taskId: string, body: z.input<typeof PatchTaskBody>) =>
+      pedir(`/leads/${leadId}/tasks/${taskId}`, TaskSchema, {
+        method: "PATCH",
+        body: JSON.stringify(validarAntes(PatchTaskBody, body)),
+      }),
 
     /** Tarea 2.5. Devuelve 409 si la visita no está en COMPLETED. Ver bloqueo 2. */
     enviarEncuesta: (citaId: string, body: z.input<typeof CreateFeedbackBody>) =>

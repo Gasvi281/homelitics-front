@@ -1245,3 +1245,582 @@ inglés (`mensajeErrorReasignar`); falta traducir los tres casos conocidos.
 El 403 no se pudo ver en vivo (el token es admin). CSV y PDF con nombre de
 agente no se descargaron en esta prueba. El error de hidratación de
 `TableroLeads` visto en esta prueba ya está arreglado (entrada anterior).
+
+## 2026-10-13 — Tarea 2.13: esquemas, cliente y mocks de at-risk y tareas (E3, bloque A)
+
+**Hecho.** `lib/schemas.ts`: `CreateTaskBody` (`due_at`, `note` ≤ 1000) y
+`PatchTaskBody`, que replica el `model_validator` de `TaskPatch` (al menos
+uno de `status`, `due_at`, `note` distinto de `null`). `lib/homelitics-nucleo.ts`:
+`api.leadsEnRiesgo({ hours, limit })` (`hours` obligatorio en el tipo y
+validado 1–8760, `limit` 1–500, `z.array(LeadSchema)`), `api.crearTarea` y
+`api.actualizarTarea`; los tres validan antes de enviar con un helper nuevo,
+`validarAntes`, y fallan como `HomeliticsError("invalido", 422)` sin llamar
+al API. `lib/mock/`: `GET /leads/at-risk`, `POST /leads/{id}/tasks` y
+`PATCH /leads/{id}/tasks/{task_id}`. 24 casos nuevos en `/api/mocktest`.
+`docs/API_CONTRACT.md`: la sección de at-risk ya no está vacía y la de
+tareas lleva lo confirmado.
+
+Verificado contra `/openapi.json` y contra el código del API
+(`routers/leads.py`, `services/lead.py`, `app/schemas.py`, `config.py` en
+`main`): `hours` 1–8760 o null, default `INACTIVITY_HOURS=72`; `limit`
+1–500, default 100; responde `list[LeadOut]`; filtra por `agency_id`.
+Hallazgos que no estaban en el plan: un `created_by` nulo cuenta como
+respuesta humana (outer join contra `agents`); la tarea nace a nombre del
+dueño del lead, no de quien la crea; el `POST` no rechaza fechas pasadas;
+un `null` en el `PATCH` es "no tocar" (no se puede borrar una nota); y el
+422 del `PATCH` vacío sale antes que el 404 del lead.
+
+**Decisiones:**
+
+- El mock de at-risk cuenta desde `Date.now()`, como el API, y no desde un
+  "hoy" fijo como la analítica: así un `MESSAGE` saliente registrado en la
+  sesión saca al lead del riesgo (lo que prueba 2.23). Para que la ventana
+  de 24 h tenga casos de borde estables se agregaron, fechados respecto al
+  arranque: un lead nuevo (`LEAD_ID_RECIENTE`, Tomás Echeverri, de Paula,
+  creado hace 2 h), una llamada humana hace 6 h a `LEAD_ID_ATENDIDO` y un
+  mensaje del bot hace 3 h a `LEAD_ID_SOLO_BOT`. `LEAD_ID_SOLO_NOTA` ya
+  existía (solo tiene una `NOTE` saliente). El tablero pasa de 14 a 15
+  tarjetas y el embudo cuenta un lead más.
+- El 422 del `PATCH` vacío en el mock lleva el `msg` exacto de Pydantic
+  (`"Value error, provide at least one of: status, due_at, note"`), que es
+  lo que deja `traducirError` de un 422 real. El cliente lo frena antes con
+  un mensaje en español, así que en `/api/mocktest` el caso del mock se
+  prueba llamando a `resolverMock` directo. `probar()` ahora muestra también
+  el `status`.
+
+Resultados con `USE_MOCKS=true` (restaurado a `false` después): a 24 h, 8
+leads en riesgo de los cuatro humanos (demo 3, Paula 3, Andrés 1, inactivo
+1), con el reciente y el atendido fuera y el del bot y el de la nota dentro;
+a 1 h, 10 (entran los dos); a 8760 h, ninguno; `limit: 3` devuelve los tres
+más viejos en orden; `hours` 0 o 9000 y `limit` 501 se frenan en el cliente;
+sin `hours` el mock usa 72. Una nota saliente no saca al lead del riesgo y un
+mensaje sí. Tareas: crear, posponer, marcar hecha, 422 por nota larga,
+fecha mala, `PATCH` vacío o todo `null`, 404 por lead o tarea ajena. El
+tablero sigue cargando con la tarjeta nueva. `tsc`, `eslint` y `next build`
+limpios.
+
+Pendiente: nada se probó contra el API real (sin pantallas en esta tarea;
+el plan lo deja para el día 3, con `hours` bajo). El error de zod de una
+fecha mal formada sale en inglés (`Invalid ISO datetime`): lo frenará el
+formulario de 2.19.
+
+## 2026-10-13 — Tarea 2.14: umbral de horas en cookie (E3, bloque A)
+
+**Hecho.** `lib/umbral.ts`: cookie `umbral_horas`, por defecto 24, validada
+con zod (`UmbralSchema`, entero 1–8760, el mismo rango que `hours` en
+`at-risk`). `normalizarUmbral()` lleva cualquier valor a uno válido (lo
+inválido vuelve a 24 sin romper nada) y `leerUmbral()` lo lee en Server
+Components con `cookies()`. `lib/umbral-navegador.ts`: `useUmbral(inicial?)`
+devuelve `[umbral, cambiar]`; `cambiar` valida, escribe la cookie (`Path=/`,
+un año, `SameSite=Lax`, sin `httpOnly` porque la escribe el cliente y solo
+lleva un número), avisa a los demás `useUmbral()` montados y hace
+`router.refresh()`. `features/riesgo/components/SelectorUmbral.tsx`: 12 / 24 /
+48 / 72 h y "Otro" con un campo numérico que frena fuera de rango con su
+propio mensaje. Todavía no está montado en ninguna pantalla: lo montan 2.16 y
+2.17. El comentario de cabecera deja dicho que es provisional hasta la
+migración 012 (bloqueo 8).
+
+**Decidido.** Dos archivos y no uno, como `lib/homelitics.ts` /
+`lib/homelitics-navegador.ts`: con todo en `lib/umbral.ts`, `next build`
+falla en cuanto una página servidor lo importa ("You're importing a component
+that needs `useRouter`… / `useSyncExternalStore`"), aunque el hook nunca se
+llame ahí. `next/headers` entra con `import()` dentro de `leerUmbral()`, así
+la mitad navegador importa constantes y validación de `lib/umbral.ts` sin
+arrastrarlo (el build lo acepta). Al llegar la 012 se tocan esos dos archivos
+y ninguna pantalla. El valor del cliente sale de `useSyncExternalStore`
+sobre `document.cookie`; en el render del servidor usa `inicial`, que la
+página debe sacar de `leerUmbral()` para no parpadear de 24 al valor real al
+hidratar.
+
+**Probado** con una página temporal (`/prueba-umbral`, ya borrada) que leía
+`leerUmbral()` y montaba el selector: cookie `abc` → 24 en servidor y
+cliente; clic en 48 h → cookie escrita y el servidor lee 48 tras el
+`refresh`; recargar lo conserva; "Otro" con 9000 se frena con el mensaje y
+con 36 queda 36 en los dos lados. Sin avisos de hidratación en consola.
+`tsc`, `eslint` y `next build` limpios (con la página temporal y sin ella).
+
+Pendiente: el criterio de "done" completo ("cambiar el umbral en una
+pantalla lo cambia en el tablero, el header y el reporte"; "nunca sale una
+petición a `at-risk` sin `hours`") solo se puede comprobar cuando 2.15–2.17
+lean de aquí. El tipo de `api.leadsEnRiesgo` ya exige `hours` desde 2.13.
+
+## 2026-10-13 — Tarea 2.15: resaltado de leads en riesgo en el tablero (HU-10 AC3)
+
+**Hecho.** `features/riesgo/claves.ts`: `claveRiesgo(horas)` =
+`["leads", "riesgo", horas]`, `PREFIJO_RIESGO` y `queryRiesgo(horas)`, que
+siempre manda `hours` y `limit: 500`. `features/riesgo/hooks.ts`:
+`useLeadsEnRiesgo(horas, { enabled })`. `tablero/page.tsx` lee el umbral con
+`leerUmbral()` y siembra GET /leads/at-risk en el mismo QueryClient que el
+tablero (no en la vista de cerrados ni con un rango al revés). `TableroLeads`
+toma el umbral con `useUmbral(umbral)`, arma un `Set` de ids y se lo pasa a
+cada `TarjetaLead` como `enRiesgo`: borde y anillo rojos **y** la etiqueta
+"Sin respuesta hace más de {umbral} h" con un ícono de reloj (no solo color).
+El resumen de arriba suma "N sin respuesta hace más de X h". Si la consulta
+de riesgo falla, una línea gris lo dice ("…el tablero se muestra sin ese
+resaltado", o "…puede estar desactualizado" si había un dato anterior) y el
+tablero sigue igual. "Actualizando…" cuenta también la consulta de riesgo,
+detrás del mismo `useHidratado()`.
+
+Invalidan `PREFIJO_RIESGO` (todos los umbrales): `useMoverLead` en
+`onSettled` (mover etapa, ganado y perdido, desde el tablero y desde
+`EtapaLead`), `useReasignarLead` al terminar bien (cambia el `agent_id`, que
+es lo que cuentan el header y el reporte) y la nota de `HistorialLead`.
+
+**Decidido.** La invalidación de riesgo en `useMoverLead` va siempre, no solo
+en el último movimiento en vuelo como la del tablero: el riesgo no tiene
+cambio optimista que una relectura temprana pueda pisar. La nota invalida
+aunque hoy una `NOTE` no saca al lead de at-risk (solo `MESSAGE`/`CALL`):
+es el único sitio que registra interacciones y deja la key lista para 2.23.
+
+**Probado** con `USE_MOCKS=true` (servidor temporal en el puerto 3001, sin
+tocar `.env.local`): a 24 h salen en rojo 9 de 11 tarjetas, fuera
+`LEAD_ID_RECIENTE` y `LEAD_ID_ATENDIDO`, como dice el mock; el HTML del
+servidor ya trae las 9 etiquetas. Marcar como perdido una tarjeta roja (por
+teclado) la saca y deja 8; la key `["leads","riesgo",24]` se relee en ese
+momento y ya no trae el lead. Mover otra entre etapas abiertas también la
+relee y la tarjeta sigue roja. Forzando el error de la query aparece la línea
+y el tablero queda sin resaltar. Con la cookie en 1 h salen las 11 y la
+etiqueta dice "1 h". Sin errores ni avisos de hidratación en consola.
+`tsc`, `eslint` y `next build` limpios.
+
+Pendiente: reasignar y la nota no se probaron en el navegador (solo el
+código). `?riesgo=1` y el conteo del header son de 2.16.
+
+
+## 2026-10-13 — Tarea 2.16: aviso de leads en riesgo en el header (HU-10 AC2)
+
+`features/riesgo/components/AlertaRiesgo.tsx`, montado al final del `<nav>`
+de `app/(agente)/layout.tsx`, que ahora lee `leerUmbral()` y se lo pasa.
+"N leads sin respuesta" en rojo; con 0, mientras carga, si la consulta
+falla o si GET /me falló, no se dibuja nada. Un `TEAM_ADMIN` cuenta todo
+lo que devuelve at-risk; un `AGENT` solo `agent_id === me.id`.
+`useLeadsEnRiesgo` acepta ahora `refetchInterval` (5 min) y
+`refetchOnWindowFocus`; como la key es la misma, esas relecturas refrescan
+también el resaltado del tablero.
+
+Tablero: `?riesgo=1` en `FiltrosTablero` (claves.ts). Lo lee `leerFiltros`
+(se descarta en la vista de cerrados), no viaja al API y **no entra en la
+query key** (`claveLeadsTablero` lo quita): ponerlo o quitarlo no vuelve a
+pedir GET /leads. `TableroLeads` deja solo las tarjetas en riesgo; mientras
+no se sabe cuáles son dice "Buscando…" y, si la consulta falló sin dato
+anterior, pide quitar el filtro en vez de mostrar un tablero vacío.
+`FiltrosTablero` monta el `SelectorUmbral` de 2.14 y una casilla "Ver solo
+los que llevan más de N h sin respuesta", **fuera del `<form>`**: el
+selector trae su propio formulario para "Otro" y un form no puede ir dentro
+de otro. Los dos se aplican al instante. "Quitar los filtros" quita también
+`riesgo`; "Ver perdidos" lo suelta. `useHidratado()` salió de
+`TableroLeads` a `lib/hidratado.ts` para compartirlo.
+
+**Decidido.**
+- El enlace del `AGENT` es `/tablero?riesgo=1&agente=<su id>`, no solo
+  `?riesgo=1`: el tablero le muestra la agencia entera, y sin `agente` las
+  tarjetas rojas no serían sus N. Como el agente no ve el selector de
+  agente, una línea en los filtros dice "Estás viendo solo tus leads".
+- El admin enlaza por ahora a `/tablero?riesgo=1`, con `TODO(2.17)` para
+  `/riesgo`.
+- **Bug encontrado y corregido en la prueba:** el `useQuery` del header
+  corría en el render del servidor y creaba la key de riesgo vacía *antes*
+  que el `HydrationBoundary` del tablero (el layout va primero). Al hallarla
+  ya creada, `HydrationBoundary` deja la siembra para un efecto que en el
+  servidor no corre: el HTML salía sin tarjetas rojas y la hidratación
+  fallaba. Ahora `AlertaRiesgo` revisa `useHidratado()` y el agente, y el
+  `useQuery` vive en un hijo (`Contador`) que solo se monta después.
+  Regla: un componente del layout no puede llamar `useQuery` en el render
+  del servidor con una key que siembre una página.
+
+**Probado con mocks** (servidor temporal en el 3001): admin, 24 h → header
+9, tablero 9 de 11 en rojo; el enlace abre `?riesgo=1` con 9 tarjetas y la
+casilla marcada, y sobrevive a recargar. Umbral 1 h desde el selector →
+header 11 y 11 tarjetas, sin recargar. Desmarcar la casilla vuelve a
+`/tablero`. Con el rol del mock cambiado a `AGENT` (revertido después):
+header 4, enlace con `&agente=`, tablero con 4 tarjetas, todas rojas, y la
+línea "Estás viendo solo tus leads". Sin errores de hidratación.
+
+**Probado contra el API real** (`USE_MOCKS=false`, umbral 1 h, agente demo
+`TEAM_ADMIN`): **60 leads en riesgo**. Header "60 leads sin respuesta";
+el tablero tiene 60 leads abiertos y los 60 salen en rojo; `?riesgo=1`
+deja los 60. `tsc`, `eslint` y `next build` limpios (el build en una copia
+temporal para no pisar el `.next` de un `next dev` que corría en el 3000).
+
+Pendiente: probar el rol `AGENT` contra el API real (falta un agente demo
+con ese rol, bloqueo 14). Si at-risk llega a 500 el header no lo avisa;
+eso lo cubre el reporte (2.18).
+
+## 2026-10-13 — Tarea 2.17: leads en riesgo por agente (HU-13 AC1)
+
+Hecho: ruta `app/(agente)/riesgo/` (`page.tsx` + `loading.tsx`) con el
+mismo control que `/embudo`: si GET /me dice `AGENT`, la página pinta "Esta
+vista es solo para administradores del equipo" y no siembra nada. Enlace
+"Leads en riesgo" en el nav, solo para admin. El aviso del header (2.16)
+ahora lleva al admin a `/riesgo` (se quitó el `TODO(2.17)`); el del agente
+sigue yendo a `/tablero?riesgo=1&agente=`.
+
+- `features/riesgo/agrupar.ts`, puro y sin runtime: `agruparPorAgente`
+  (de más a menos leads; empate por lead más antiguo y luego por id, para que
+  el orden no salte entre relecturas; los leads de cada grupo del más viejo
+  al más nuevo), `indexarListings` y `etiquetaListing`. Se usa como `select`
+  en `useRiesgoPorAgente(horas)`, con la misma key que `useLeadsEnRiesgo`:
+  el header, el tablero y el reporte comparten una sola petición.
+- **Propiedad: GET /listings, no `usePropiedades()`.** Ese hook agrupa por
+  `property_id` y pierde el `listing_id`, que es lo que trae `LeadOut`.
+  `useListingsPorId()` usa la misma key y petición (`clavePropiedades()`)
+  con otro `select`, así que no cuesta otra llamada. Un listing que no
+  aparece (pide 200) dice "Publicación fuera del listado"; ninguno de los
+  60 reales cayó ahí.
+- Lo que falta se escribe, no se inventa: el cliente sale como el final de
+  su `client_id` (como el detalle del lead, bloqueo 12) con una línea bajo la
+  tabla que lo explica; un agente que no está en GET /agents dice "Agente
+  fuera de la lista" con el final del id, y si /agents falla, "Nombre no
+  disponible". No se usó `NombreAgente` tal cual porque devuelve `null` y la
+  celda quedaría vacía.
+- Estados: carga (con la nota del minuto del API dormido), error con
+  "Intentar de nuevo", vacío "Nadie tiene leads en riesgo con este umbral" y
+  `SelectorUmbral` arriba. Cambiar el umbral deja la tabla anterior atenuada
+  (`keepPreviousData`) hasta que llega la nueva.
+- **Hidratación:** con `loading.tsx` la página es un Suspense aparte y el
+  header hidrata primero. El `Contador` de `AlertaRiesgo` alcanza a crear la
+  key de riesgo (pendiente) antes que el `HydrationBoundary` de la página,
+  que entonces deja la siembra para un efecto: el servidor pintaba la tabla
+  y el navegador "Cargando" (error de hidratación reproducido con mocks).
+  `ReporteRiesgo` ahora pinta "Cargando" hasta `useHidratado()`, también en
+  el servidor; los datos sembrados aparecen un render después, sin otra
+  petición. Tres recargas seguidas sin errores.
+
+**Probado con mocks** (dev en el 3001): admin, 24 h → "9 leads … de 4
+agentes", Hernando Carrillo 4, Paula Gómez 3, Carlos Úsuga 1 (inactivo, con
+nombre), Andrés Montoya 1; desplegar muestra dirección, operación, etapa,
+fecha en Bogotá y enlace. 72 h → 9; "Otro" 8760 h → "Nadie tiene leads en
+riesgo con este umbral". Con el rol del mock en `AGENT` (revertido): el
+aviso de solo administradores, sin enlace en el nav. `agruparPorAgente`
+probado aparte con `node --experimental-strip-types` (vacío, empate por
+antigüedad, orden interno, offsets de zona).
+
+**Probado contra el API real** (`next build` + `next start` en una copia
+temporal, puerto 3002, agente demo `TEAM_ADMIN`, umbral 1 h): 60 leads de 8
+agentes, de 15 a 3, el header en "60 leads sin respuesta" con enlace a
+`/riesgo`. Los 60 cruzan con un listing; "Abrir el lead" abre el lead
+correcto (mismo cliente, dirección, etapa y agente). `tsc`, `eslint` y
+`next build` limpios.
+
+Pendiente:
+- **El tablero tiene la misma carrera de hidratación** (también tiene
+  `loading.tsx` y siembra la key de riesgo). En esta prueba no saltó, pero
+  depende del orden en que hidraten header y página. No se tocó aquí (es de
+  2.15/2.16); la salida de fondo sería sembrar la key de riesgo en el layout
+  o que el header no cree la key antes que la página.
+- Sin aviso de los 500 de at-risk ni filtros ni exportación: es 2.18.
+- `AGENT` contra el API real sigue sin probarse (bloqueo 14).
+
+## 2026-10-20 — Tarea 2.18: filtros y exportación del reporte de riesgo (HU-13 AC2, AC3)
+
+Hecho:
+- `/riesgo` lee `?desde&hasta&propiedad` (`leerFiltrosRiesgo` en
+  `features/riesgo/claves.ts`, con `leerDia` de `lib/filtros-url.ts`).
+  `FiltrosRiesgo` copia la mecánica de `FiltrosEmbudo`: la URL manda,
+  `router.replace` al enviar, un rango al revés se frena en el formulario.
+  Si llega al revés por la URL, la pantalla lo avisa y muestra el reporte
+  sin filtrar.
+- Los filtros no van en la key ni en la query (at-risk no filtra, bloqueo
+  10): `useRiesgoPorAgente(horas, filtros)` los aplica en el `select` con
+  `armarReporte` (`features/riesgo/agrupar.ts`) antes de agrupar. La fecha
+  es el día de `created_at` en hora de Bogotá (`diaLocal`); la propiedad sale
+  de cruzar `listing_id` con GET /listings (`property_id`). Cambiar de
+  filtro no pide nada al API.
+- Aviso de los 500 (`incompleto`, se calcula sobre la lista sin filtrar) en
+  la pantalla, en el CSV (línea "Aviso:" arriba de la cabecera) y en el PDF
+  (en rojo, antes de las tablas).
+- `ExportarRiesgo`: CSV armado en el navegador (`csvRiesgo` en
+  `features/riesgo/exportar.ts`, Blob con BOM UTF-8) y PDF con jspdf +
+  jspdf-autotable cargados con `import("../pdf")` al hacer clic (`/riesgo`
+  pesa 6,7 kB en el build). El PDF trae el resumen por agente y luego el
+  detalle. Nombre del archivo con umbral y filtros:
+  `riesgo_24h_desde_2026-08-01_propiedad-a10a1000.csv`.
+- `descargar()` pasó de `ExportarEmbudo` a `lib/descargar.ts` y la usan los
+  dos.
+
+Decidido:
+- **Días sin respuesta = días desde `created_at`, rotulado "(máximo)"**, con
+  una nota en los dos archivos. `LeadOut` no trae la última respuesta y no
+  hay cómo calcularla sin pedir las interacciones de cada lead. Queda como
+  **bloqueo 15** en `docs/SPRINT_E3_LINEA2.md`.
+- **CSV con `;`**: es el separador de listas de Excel con la configuración
+  regional es-CO (confirmado en este equipo); con `,` Excel lo abre en una
+  sola columna. El CSV del embudo lo arma el back con `,` y no se tocó.
+- Con filtro por propiedad, un lead cuya publicación no está en GET
+  /listings (pide 200) queda fuera y se cuenta aparte ("N leads quedaron
+  fuera del filtro por propiedad"), en pantalla y en los archivos.
+- Exportar se deshabilita mientras carga, sin leads o con el rango al revés.
+
+**Probado con mocks** (dev en el 3001, ya apagado): 24 h sin filtros → 9
+leads de 4 agentes; `?desde=2026-08-20&hasta=2026-09-20` → 7 de 3; rango al
+revés por URL → aviso y 9 sin filtrar; rango al revés en el formulario →
+"La fecha inicial no puede ser posterior a la final." y la URL no cambia;
+propiedad Circular 73B → 3 de 2. Descargados y abiertos los dos archivos:
+el CSV empieza con `EF BB BF` y Excel (es-CO) lo abre en cinco columnas
+con tildes bien; el PDF trae filtros en español, resumen y detalle. Para el
+aviso de los 500 se bajó `LIMITE_RIESGO` a 9 un momento (revertido): aviso
+ámbar en pantalla, línea "Aviso: Puede estar incompleto…" en el CSV y en
+rojo en el PDF. Sin errores en consola. `tsc`, `eslint` y `next build`
+limpios.
+
+Pendiente:
+- Sin probar contra el API real.
+- El filtro por propiedad depende de que la publicación esté entre las 200
+  de GET /listings.
+
+## 2026-10-20 — Tarea 2.19: panel de seguimiento del lead (HU-11 AC1)
+
+Hecho:
+- `features/seguimiento/`: `PanelSeguimiento` (Client Component), `hooks.ts`
+  (`useCrearRecordatorio`, `useAhora`, `mensajeErrorRecordatorio`) y
+  `recordatorio.ts` (lo puro: orden, vencido, conversión Bogotá → UTC con
+  `fromZonedTime`, atajos).
+- Montado en `app/(agente)/leads/[leadId]/page.tsx` al lado del historial
+  (`lg:` dos columnas, panel de 20rem); en pantallas angostas va debajo. El
+  contenedor pasó de `max-w-3xl` a `max-w-5xl` para que quepan los dos.
+- Lista: PENDING y SNOOZED arriba por `due_at`; DONE en un `<details>`
+  "Hechos (N)". Abiertas con `due_at` pasado: borde rojo y etiqueta
+  "Vencido" con texto.
+- Formulario "Nuevo recordatorio": fecha y hora (hora de Bogotá), atajos
+  "En 1 día / 3 días / 1 semana" (misma hora de ahora, N días después),
+  nota opcional con contador `n/1000` y botón "Guardar recordatorio". Una
+  fecha pasada muestra "Esa fecha ya pasó…" y deshabilita el botón; al
+  enviar se vuelve a revisar contra el reloj. Al crear: POST
+  /leads/{id}/tasks e invalidación de `claveTareasLead`, así que aparece
+  también en la línea de tiempo.
+
+Decidido:
+- **SNOOZED vencida también lleva "Vencido"**: pospuesta a una fecha que ya
+  llegó está tan vencida como una pendiente.
+- **"Ahora" sale del servidor** (`ahoraInicial`) y se renueva cada minuto
+  con `useAhora`: con `new Date()` en el render, una tarea que vence entre
+  el HTML y la hidratación rompe la hidratación. Con la página abierta, un
+  recordatorio pasa a "Vencido" sin recargar (como mucho un minuto tarde).
+- Hechas ordenadas por `due_at` descendente: el API no dice cuándo se
+  marcaron.
+- No optimista: el formulario espera al 201 y se limpia solo si se guardó.
+- Las tareas del sistema (first-touch, barrido) salen mezcladas, sin intentar
+  distinguirlas por la nota (bloqueo 11).
+
+**Probado con mocks:** lead de Laura (`LEAD_ID`): la tarea semilla sale
+"Vencido"; fecha de ayer → aviso y botón deshabilitado; "En 3 días" + nota →
+aparece en el panel y en la línea de tiempo. Tras `/api/mocktest` (que deja
+`TASK_ID` en DONE) sale "Hechos (1)" tachada. En 375 px el panel queda debajo
+del historial.
+
+**Probado en vivo** sobre "Smoke Test User" (`5311d3b9-ca51-452e-bdd4-5af35338d51e`):
+su tarea "Auto-raised: first-touch follow-up for a new lead." (16 sep) sale
+"Vencido". Con "En 1 día" y la nota "Prueba 2.19: llamar para confirmar el
+interés en la visita" → POST 201 y GET de tareas 200; aparece en el panel y
+en el historial. Guardado `due_at = 2026-10-21T18:02:00Z` = 13:02 de Bogotá,
+lo que mostraba el formulario. Esa tarea queda PENDING en el lead de prueba
+(se puede cerrar con 2.20). `tsc`, `eslint` y `next build` limpios
+(`/leads/[leadId]` 7,17 kB).
+
+Pendiente:
+- Posponer y "Hecho" son la 2.20.
+- En 375 px la página se desborda unos 23 px por la píldora "N leads sin
+  respuesta" del header (2.16), no por este panel.
+- Ojo para pruebas: con mocks, un `fetch` a `/api/homelitics/*` desde la
+  consola va al API real (los mocks del navegador no pasan por el proxy).
+  Una prueba así dio un 404 inofensivo contra el API con un id de mock.
+
+## 2026-10-20 — Tarea 2.20: posponer y marcar hecha una tarea (HU-11 AC3)
+
+Hecho:
+- `useActualizarTarea` en `features/seguimiento/hooks.ts`, con la misma
+  forma que `useMoverLead` (2.10): onMutate cancela la lectura de
+  `claveTareasLead`, guarda la foto de la tarea y aplica el cambio; onError
+  devuelve esa tarea (solo esa) y avisa con `alFallar`; onSettled relee
+  cuando termina el último PATCH en vuelo. El cuerpo pasa por
+  `PatchTaskBody` dentro de `api.actualizarTarea`.
+- En el panel, cada PENDING/SNOOZED tiene "Posponer" (1 día, 3 días, "Elegir
+  fecha" con fecha y hora de Bogotá, que no deja una fecha pasada) y
+  "Hecho". Las DONE no tienen acciones. Los botones de una tarea se congelan
+  mientras su PATCH está en vuelo (`useTareasCambiando`).
+- `mensajeErrorTarea` traduce cada `kind` a español y nunca muestra el
+  `detail` del API. El error queda en la fila de esa tarea y se borra con la
+  siguiente acción sobre ella.
+
+Decidido:
+- Posponer cuenta desde ahora, no desde el `due_at` viejo
+  (`posponerDesdeAhora` en `recordatorio.ts`): a una tarea vencida hace una
+  semana, "1 día" sobre la fecha vieja la dejaría todavía vencida. Al minuto,
+  como el formulario de 2.19.
+- Errores por tarea (un `Record` por id) y no uno global: con dos PATCH en
+  vuelo, el error de una no tapa el de otra.
+- Como el panel y la línea de tiempo leen la misma key, el cambio optimista
+  se ve en los dos ("Tarea · Pospuesta").
+
+**Probado con mocks** (lead de Laura): con
+`__homeliticsMock = { latenciaMs: 1500, falla: "red" }`, "1 día" muestra al
+instante "Pospuesto" para el 21 oct 13:08 (mañana a esta hora, no el 17 sep)
+y al fallar vuelve a "Vencido" del 16 sep con el mensaje de red. Con
+`falla: "invalido"`, "Hecho" la pasa a "Hechos (1)" y vuelve. Sin falla:
+"Elegir fecha" (precargada en mañana), "3 días" y "Hecho" quedan; en
+"Hechos" no hay botones; una fecha de ayer avisa y deshabilita el botón.
+
+**Probado en vivo** sobre el recordatorio de 2.19 en "Smoke Test User"
+(tarea `39be6852-a290-489c-8c8b-0d039ad5343e`): "Posponer → 3 días" →
+PATCH 200; tras recargar sale SNOOZED con `due_at = 2026-10-23T18:10:00Z`
+(13:10 de Bogotá, tres días desde ahora y no desde su `due_at` del 21).
+Luego "Hecho" → recargar la muestra en "Hechos (1)", sin acciones. Esa tarea
+queda DONE. La "Auto-raised: first-touch" del 16 sep sigue PENDING, sin
+tocar. `tsc`, `eslint` y `next build` limpios (`/leads/[leadId]` 8,28 kB).
+
+De paso, `mensajeErrorRecordatorio` (2.19) ya no cae en `e.detail`: trata
+los siete `kind` en español, como `mensajeErrorTarea`. Sin `default`, así
+que un `kind` nuevo en `ErrorKind` hace fallar `tsc` en los dos.
+
+## 2026-10-20 — Tarea 2.21: plantillas por etapa y `rellenar` (HU-12 AC1, AC2)
+
+Hecho:
+- `features/plantillas/plantillas.ts`: las cuatro plantillas base en es-CO
+  (bienvenida, confirmación de visita, después de la visita, reactivación),
+  cada una con `clave`, `titulo`, `texto` y `etapas`. `plantillaSugerida`
+  da la primera para la etapa del lead: `INTERESTED` → bienvenida,
+  `VISIT_SCHEDULED` → confirmación, `VISITED` → post-visita, `NEGOTIATING` y
+  `LOST` → reactivación, `WON` → ninguna.
+- `features/plantillas/rellenar.ts`: `rellenar(texto, contexto)` →
+  `{ texto, faltantes }`, pura. Una variable sin dato (o vacía) queda como
+  `[falta: <nombre legible>]` y sale una vez en `faltantes`
+  (`{ variable, etiqueta }`). `construirContexto(lead, listing, citas,
+  agente, ahora)` arma el contexto con lo que ya carga `/leads/[leadId]`.
+- En `lib/format.ts`: `fechaLarga` (el día en Bogotá, sin hora) y
+  `precioEnTexto`, que redondea al peso con `BigInt` sobre el string, sin
+  `Number`.
+- 12 casos en `/api/mocktest` (los primeros de la lista, con campo `pasa`),
+  con datos fijos validados por los esquemas de zod. Todos pasan.
+
+Decidido:
+- Claves y variables tal como en la propuesta del back
+  (`PROPOSAL_agency_bots_notifications.md` §3.3): `welcome`,
+  `visit_confirmed`, `post_visit_feedback`, `re_engagement`; variables
+  `{client_name}`, `{agent_name}`, `{listing_address}`, `{neighborhood}`,
+  `{price}`, `{visit_date}`, `{visit_time}`. Las demás de §3.3
+  (`{agency_name}`, `{calendar_link}`, `{slots}`…) no se usan: el front no
+  tiene de dónde sacarlas en la página del lead.
+- El contexto lleva los valores ya formateados (Bogotá, pesos);
+  `rellenar` solo sustituye, en una pasada: un valor con llaves no se
+  reinterpreta. Una variable que el front no conoce (un error de tipeo)
+  también queda como `[falta: …]`, nunca se borra.
+- La cita de referencia es la próxima que sigue en pie (no terminal, desde
+  `ahora`); si no hay, la última `COMPLETED`. Una cita pasada que nadie
+  cerró no cuenta: mejor faltante que una fecha vieja en una confirmación.
+- `client_name` solo sale si llega una `LeadCard`; con `LeadOut` (lo que
+  devuelve `GET /leads/{id}`) queda faltante (bloqueo 12). `agente` es el
+  dueño del lead, no quien usa la app.
+
+Pendiente:
+- Sin pantalla: el selector y la vista previa son la 2.22, "Copiar / Ya lo
+  envié" la 2.23. Falta decidir (a) o (b) de la edición persistente antes
+  de 2.22.
+- La página del lead no carga hoy el agente dueño: 2.22 tendrá que
+  resolver `lead.agent_id` con `GET /agents` para `{agent_name}`.
+
+`tsc`, `eslint` y `next build` limpios.
+
+## 2026-10-20 — Tarea 2.22: responder con plantilla en el panel de seguimiento (HU-12 AC1)
+
+Hecho:
+- `features/plantillas/components/ResponderConPlantilla.tsx`, al final del
+  `PanelSeguimiento`: sección "Responder con plantilla" con un selector de
+  las cuatro plantillas (la sugerida para la etapa del lead va primero,
+  marcada "Sugerida"; la sugerida sigue a la etapa porque el lead se lee del
+  caché) y la vista previa ya rellenada (`rellenar` + `construirContexto` de
+  2.21) en un `textarea` editable. Lo que el agente escribe ahí es solo de
+  ese mensaje; "Deshacer mis cambios a este mensaje" lo regresa a la
+  plantilla. Cambiar de plantilla descarta la edición.
+- Si hay faltantes, un aviso arriba del `textarea` los lista. Si el agente
+  reemplaza a mano un `[falta: …]`, ese faltante deja de avisarse.
+- `{agent_name}` sale de `useAgentes()` con `lead.agent_id` (lo pendiente de
+  2.21). El `listing` lo pasa la página por props al panel: ya lo traía.
+- `features/plantillas/almacen.ts` (decisión (b)): "Editar la plantilla" abre
+  un editor del texto **con variables** y "Guardar como mi plantilla" lo
+  guarda; "Volver a la original" lo borra. El selector marca "tu versión".
+- Probado en vivo contra el API (lead `5311d3b9…`, `INTERESTED`):
+  bienvenida sugerida, `{client_name}` como faltante (bloqueo 12) y el
+  nombre real de la agente; guardar, recargar (la versión propia sigue),
+  volver a la original, JSON corrupto en `localStorage` (se ignora) y
+  `setItem` que lanza (aviso en español, la pantalla sigue).
+
+Decidido:
+- **Opción (b)** de la nota "Edición persistente de las plantillas", que
+  incluye la (a): edición por mensaje siempre, y además una versión propia
+  por plantilla en `localStorage`. Todo acceso a `localStorage` vive en
+  `almacen.ts`, dentro de try/catch; ese archivo es el que se reemplaza
+  cuando exista la migración 012 (`agency_settings.bot.templates`). La
+  pantalla dice que se guarda solo en este navegador.
+- Lo guardado nunca es el mensaje rellenado sino el texto con variables, y
+  por eso hay un editor aparte: no hay forma confiable de volver de un
+  mensaje con datos del cliente a la plantilla. Se guarda una llave
+  (`homelitics:plantillas:v1`) con `{ clave: texto }`; al leer se valida con
+  zod, se ignoran claves desconocidas, textos vacíos o de más de 2000
+  caracteres. Una variable mal escrita en la versión propia sale como
+  faltante, igual que en 2.21.
+- `useSyncExternalStore` con snapshot vacío en el servidor (no hay
+  `localStorage` al renderizar), y escucha `storage` para que otra pestaña
+  que guarda actualice esta.
+
+Pendiente:
+- "Copiar" y "Ya lo envié" (registro de la interacción): tarea 2.23.
+- Mientras `GET /agents` carga (la primera vez, con el API despertando),
+  `{agent_name}` se ve como faltante unos segundos.
+- La versión propia es por navegador, no por agente ni por agencia, hasta la
+  migración 012 (bloqueo 8).
+- Nota de prueba: con el panel del navegador oculto la página no hidrata
+  hasta que se dibuja; no es un error de la app.
+
+`tsc`, `eslint` y `next build` limpios.
+
+## 2026-10-20 — Tarea 2.23: copiar y "Ya lo envié" (HU-12 AC3, parcial)
+
+Hecho: `features/plantillas/components/EnviarMensaje.tsx`, bajo el textarea
+de 2.22, y `features/plantillas/hooks.ts` (`useRegistrarMensaje`,
+`mensajeErrorRegistro`). Dos pasos: "Copiar mensaje"
+(`navigator.clipboard.writeText`; si el navegador no deja, enfoca y
+selecciona el textarea y le dice al agente que copie con Ctrl+C) y luego
+"Ya lo envié" con un selector de canal (`Channel.options`, por defecto el
+`source_channel` del lead, marcado "por donde llegó"). "Ya lo envié" hace
+POST /leads/{id}/interactions con `OUTBOUND`/`MESSAGE`, el canal elegido y
+el texto, por `CreateInteractionBody`. Con faltantes pide "¿Lo enviaste
+así?" antes de registrar. Al registrar invalida `claveInteracciones`,
+`PREFIJO_RIESGO` y `PREFIJO_TABLERO`. Una línea dice que el mensaje lo envía
+el agente desde su canal y la app solo lo registra.
+
+Decidido:
+- "Ya lo envié" solo aparece si lo copiado es igual al mensaje que se ve. Si
+  cambia después de copiar, hay que copiarlo otra vez: así lo registrado es
+  lo que salió. Pasa también sin que el agente edite nada, cuando
+  `GET /agents` llega tarde y rellena `{agent_name}`; el aviso lo dice.
+- No es optimista: "Listo: quedó registrado" solo tras el 201. Después del
+  registro vuelve al paso 1, para no registrar dos veces el mismo envío.
+- Un mensaje de más de 4000 caracteres no deja copiar (el API lo rechazaría
+  y no se podría registrar lo enviado).
+- Etiquetas de canal propias del selector ("En la app", "Llamada"):
+  `ETIQUETA_CANAL` de `TarjetaCita` está pensada para "por …".
+
+**Probado en vivo** sobre "Smoke Test User" (`5311d3b9-…`) con umbral 1 h:
+60 en riesgo, el lead entre ellos, header "60 leads sin respuesta".
+Bienvenida sugerida; el panel del navegador negó el portapapeles, así que
+salió el respaldo (texto seleccionado, 218 de 218 caracteres). Con
+`[falta: nombre del cliente]`, "Ya lo envié" abrió la confirmación sin
+mandar nada. Quité el marcador a mano (el aviso de faltantes se fue y "Ya lo
+envié" se escondió hasta copiar otra vez), copié, elegí Telegram y confirmé:
+POST 201, relectura de interacciones y de at-risk. El lead salió de
+`/leads/at-risk?hours=1` (59), el header bajó a "59 leads sin respuesta" sin
+recargar y la línea de tiempo muestra "Mensaje · Saliente por Telegram". La
+interacción queda en el lead de prueba, con "(prueba 2.23)" al final. El
+umbral se devolvió al de por defecto.
+
+`tsc`, `eslint` y `next build` limpios (`/leads/[leadId]` 12,2 kB). El build
+corrió en una copia del repo: otra sesión tenía `next dev` sobre esta
+carpeta y `next build` le habría pisado `.next`.
+
+Pendiente:
+- El camino feliz del portapapeles (sin respaldo) no se vio en el panel del
+  navegador; hay que confirmarlo en un navegador normal.
+- HU-12 AC3 sigue parcial: el envío real desde la app necesita que el API
+  mande mensajes (Telegram lo maneja L3).
+- `client_name` sigue faltando siempre (bloqueo 12), así que casi todo
+  mensaje pasa por la confirmación de faltantes si el agente no lo completa.

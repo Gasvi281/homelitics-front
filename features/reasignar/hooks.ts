@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, HomeliticsError } from "@/lib/homelitics-navegador";
 import { CLAVE_AGENTES } from "@/features/agentes/hooks";
 import { PREFIJO_TABLERO, prefijoLead } from "@/features/tablero-leads/claves";
+import { PREFIJO_RIESGO } from "@/features/riesgo/claves";
 
 export type ReasignarLead = { leadId: string; toAgentId: string };
 
@@ -14,7 +15,8 @@ export type ReasignarLead = { leadId: string; toAgentId: string };
  *
  * Al terminar bien relee el tablero (el nombre en la tarjeta y el filtro por
  * agente) y todo lo del lead bajo `prefijoLead()` (el detalle muestra el
- * dueño nuevo). Con un 409 relee además la lista de agentes: el destino pudo
+ * dueño nuevo), y los leads en riesgo: cambia su `agent_id`, y con él a
+ * quién le cuenta el aviso del header y en qué fila del reporte sale. Con un 409 relee además la lista de agentes: el destino pudo
  * desactivarse mientras el modal estaba abierto (docs/API_CONTRACT.md §4).
  */
 export function useReasignarLead() {
@@ -25,6 +27,7 @@ export function useReasignarLead() {
     onSuccess: (_lead, { leadId }) => {
       void qc.invalidateQueries({ queryKey: PREFIJO_TABLERO });
       void qc.invalidateQueries({ queryKey: prefijoLead(leadId) });
+      void qc.invalidateQueries({ queryKey: PREFIJO_RIESGO });
     },
     onError: error => {
       if (error instanceof HomeliticsError && error.kind === "conflicto") {

@@ -128,7 +128,8 @@ completos en `lib/mock/`. Sigue pendiente la etapa 2 de `lib/session.ts`.
 `@supabase/ssr`, `@dnd-kit/core` (el arrastre del tablero, tarea 2.10),
 `jspdf` y `jspdf-autotable` (el PDF del embudo, HU-17: el API solo exporta
 CSV y deja el PDF al front; se cargan con `import()` al hacer clic en
-`features/embudo/components/ExportarEmbudo.tsx`, nunca con la página).
+`features/embudo/components/ExportarEmbudo.tsx` y
+`features/riesgo/components/ExportarRiesgo.tsx`, nunca con la página).
 
 ## Variables de entorno
 

@@ -6,6 +6,7 @@ import { api, HomeliticsError } from "@/lib/homelitics-navegador";
 import type { Interaction, Task } from "@/lib/schemas";
 import { construirLineaTiempo, textoInteraccion, type EventoTimeline } from "@/lib/lineaTiempo";
 import { claveInteracciones } from "@/features/tablero-leads/claves";
+import { PREFIJO_RIESGO } from "@/features/riesgo/claves";
 import { useCitasLead, useInteracciones, useTareasLead } from "@/features/tablero-leads/hooks";
 import { fechaHoraLarga } from "@/lib/format";
 import { Aviso } from "@/components/Aviso";
@@ -41,6 +42,10 @@ const ETIQUETA_TAREA: Record<Task["status"], string> = {
  * agente"). Al éxito se agrega al final de las interacciones en caché — no
  * hace falta releer: el API le pone `occurred_at` a "ahora", que siempre cae
  * después de todo lo histórico.
+ *
+ * También invalida los leads en riesgo (2.15). Hoy una nota no saca al lead
+ * de at-risk (solo cuentan `MESSAGE` y `CALL`), pero es el único sitio que
+ * registra interacciones y así queda listo para el mensaje de 2.23.
  */
 export function HistorialLead({ leadId }: { leadId: string }) {
   const qc = useQueryClient();
@@ -67,6 +72,7 @@ export function HistorialLead({ leadId }: { leadId: string }) {
         body: texto,
       });
       qc.setQueryData<Interaction[]>(claveInteracciones(leadId), (prev = []) => [...prev, interaccion]);
+      void qc.invalidateQueries({ queryKey: PREFIJO_RIESGO });
       setNota("");
     } catch (err) {
       setError(mensajeErrorNota(err));

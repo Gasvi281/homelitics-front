@@ -30,8 +30,13 @@
  * | Inmueble con dos publicaciones (filtro property_id)| `PROPERTY_ID_DOBLE`      |
  * | Agentes de la agencia (GET /agents)               | `AGENT_ID`, `AGENT_ID_PAULA`, `AGENT_ID_ANDRES`, `AGENT_ID_INACTIVO` |
  * | Bot de la agencia (solo con `include_bots=true`)  | `AGENT_ID_BOT`            |
+ * | Tarea pendiente de Laura (PATCH de HU-11)         | `TASK_ID`                 |
+ * | Riesgo: creado hace 2 h, más nuevo que 24 h        | `LEAD_ID_RECIENTE`        |
+ * | Riesgo: llamada humana hace 6 h, fuera a 24 h      | `LEAD_ID_ATENDIDO`        |
+ * | Riesgo: solo le contestó el bot, sigue en riesgo   | `LEAD_ID_SOLO_BOT`        |
+ * | Riesgo: solo tiene una nota saliente, sigue en riesgo | `LEAD_ID_SOLO_NOTA`    |
  *
- * GET /leads devuelve 14 tarjetas repartidas en las seis etapas, y
+ * GET /leads devuelve 15 tarjetas repartidas en las seis etapas, y
  * POST /leads/{id}/transitions aplica las reglas del API (409 y 422) y mueve
  * `current_stage` en memoria. POST /leads/{id}/reassign (HU-08) también:
  * 403 si el rol no es TEAM_ADMIN, 404 si el destino no existe, 409 si está
@@ -48,7 +53,7 @@ import { HomeliticsError, type ErrorKind } from "../errores";
 import { TZ } from "../format";
 import { EMBUDO, destinosLegales, esTerminal, puedeMover } from "../etapas";
 import {
-  LostReason, Stage, TERMINAL_APPOINTMENT_STATUS,
+  LostReason, Stage, TaskStatus, TERMINAL_APPOINTMENT_STATUS,
   type Agent, type AgentListItem, type Appointment, type AppointmentDetail, type Feedback,
   type Interaction, type Lead, type LeadCard, type Listing, type Task, type Transition,
 } from "../schemas";
@@ -82,6 +87,20 @@ const PROPERTY_ID_DOBLE = uuid(110);
 const LEAD_ID_NEGOCIANDO = uuid(126);
 const LEAD_ID_GANADO = uuid(128);
 const LEAD_ID_PERDIDO = uuid(130);
+
+/*
+ * Leads en riesgo (HU-10): GET /leads/at-risk cuenta hacia atrás desde AHORA,
+ * así que estos casos se fechan respecto al arranque del mock y no a
+ * septiembre. Con 24 h: el recién llegado no está en riesgo (es más nuevo que
+ * la ventana) y el atendido tampoco (llamada humana hace 6 h); el que solo
+ * contestó el bot y el que solo tiene una nota sí lo están.
+ */
+const LEAD_ID_RECIENTE = uuid(132);
+const LEAD_ID_ATENDIDO = uuid(127);
+const LEAD_ID_SOLO_BOT = uuid(121);
+const LEAD_ID_SOLO_NOTA = uuid(123);
+const ARRANQUE = Date.now();
+const haceHoras = (h: number) => new Date(ARRANQUE - h * 3_600_000).toISOString();
 
 /* Agentes de la misma agencia (HU-08 y HU-17). `AGENT_ID` es el demo. */
 const AGENT_ID_PAULA = uuid(30);
@@ -255,6 +274,9 @@ let leads: LeadMock[] = [
     "2026-08-10T14:00:00Z", "2026-09-02T17:30:00Z", AGENT_ID_ANDRES),
   leadMock(uuid(131), uuid(151), null, LISTING_ID, "IN_APP", "LOST",
     "2026-08-20T20:10:00Z", "2026-08-27T13:00:00Z", AGENT_ID_INACTIVO),
+  /** HU-10: escribió hace 2 h y nadie le ha contestado, pero es más nuevo que la ventana de 24 h. */
+  leadMock(LEAD_ID_RECIENTE, uuid(152), "Tomás Echeverri", LISTING_ID_POBLADO, "TELEGRAM", "INTERESTED",
+    haceHoras(2), haceHoras(2), AGENT_ID_PAULA),
 ];
 
 function buscarLead(id: string): LeadMock | undefined {
@@ -375,6 +397,15 @@ let interacciones: Interaction[] = [
   // Lo que escribe el API al pasar a LOST (docs/API_CONTRACT.md, POST .../transitions).
   mensaje(212, LEAD_ID_PERDIDO, "OUTBOUND", "IN_APP", "Lost: PRICE — Consiguió uno más barato en Envigado", "2026-09-02T17:30:00Z", "STATUS_CHANGE"),
   mensaje(213, uuid(131), "OUTBOUND", "IN_APP", "Lost: NO_RESPONSE", "2026-08-27T13:00:00Z", "STATUS_CHANGE"),
+  // HU-10, relativos al arranque (ver LEAD_ID_RECIENTE).
+  mensaje(214, LEAD_ID_RECIENTE, "INBOUND", "TELEGRAM", "Hola, ¿el apartamento del Poblado tiene balcón?", haceHoras(2)),
+  // Lo escribe el bot: para el API no es respuesta y el lead sigue en riesgo.
+  {
+    ...mensaje(215, LEAD_ID_SOLO_BOT, "OUTBOUND", "TELEGRAM",
+      "Hola, soy el asistente de Homelitics. Un asesor te contacta pronto.", haceHoras(3)),
+    created_by: AGENT_ID_BOT,
+  },
+  mensaje(216, LEAD_ID_ATENDIDO, "OUTBOUND", "CALL", null, haceHoras(6), "CALL"),
 ];
 
 function mensaje(
@@ -419,9 +450,12 @@ function historialSemilla(l: LeadMock): Transition[] {
 
 let transiciones: Transition[] = leads.flatMap(historialSemilla);
 
-const tareas: Task[] = [
+const TASK_ID = uuid(16);
+
+/** En memoria: POST y PATCH de `/leads/{id}/tasks` la cambian. */
+let tareas: Task[] = [
   {
-    id: uuid(16),
+    id: TASK_ID,
     lead_id: LEAD_ID,
     agent_id: AGENT_ID,
     status: "PENDING",
@@ -831,6 +865,124 @@ function tareasDelLeadMock(leadId: string): Task[] {
   return tareas.filter(t => t.lead_id === leadId);
 }
 
+/*
+ * Tareas (HU-11). Como en el API, el cuerpo se valida antes de buscar el lead
+ * (FastAPI corre Pydantic antes del handler): un PATCH vacío da 422 aunque el
+ * lead no exista. Los `detail` son los `msg` de Pydantic, que es lo que deja
+ * `traducirError` de un 422 real.
+ */
+
+function invalido(detail: string): never {
+  throw new HomeliticsError("invalido", detail, 422);
+}
+
+/** `null` y ausente valen lo mismo, como `datetime | None = None` en Pydantic. */
+function fechaOpcional(valor: unknown, campo: string): string | null {
+  if (valor == null) return null;
+  if (typeof valor !== "string" || Number.isNaN(Date.parse(valor))) {
+    invalido(`${campo}: Input should be a valid datetime`);
+  }
+  return valor;
+}
+
+function notaOpcional(valor: unknown): string | null {
+  if (valor == null) return null;
+  if (typeof valor !== "string") invalido("note: Input should be a valid string");
+  if (valor.length > 1000) invalido("note: String should have at most 1000 characters");
+  return valor;
+}
+
+function crearTareaMock(leadId: string, cuerpo: Record<string, unknown> | undefined): Task {
+  if (cuerpo?.due_at == null) invalido("due_at: Field required");
+  const dueAt = fechaOpcional(cuerpo.due_at, "due_at")!;
+  const nota = notaOpcional(cuerpo.note);
+  // El dueño de la tarea es el del lead, no quien la crea (services/lead.py).
+  const leadActual = buscarLead(leadId) ?? noEncontrado("El lead no existe o es de otra agencia.");
+
+  const nueva: Task = {
+    id: nuevoId(), lead_id: leadId, agent_id: leadActual.agent_id,
+    status: "PENDING", due_at: dueAt, note: nota, created_at: new Date().toISOString(),
+  };
+  tareas = [...tareas, nueva];
+  return nueva;
+}
+
+function actualizarTareaMock(leadId: string, taskId: string, cuerpo: Record<string, unknown> | undefined): Task {
+  const estadoCrudo = cuerpo?.status ?? null;
+  const estado = estadoCrudo === null ? null : TaskStatus.safeParse(estadoCrudo).data;
+  if (estado === undefined) invalido("status: Input should be 'PENDING', 'DONE' or 'SNOOZED'");
+  const dueAt = fechaOpcional(cuerpo?.due_at, "due_at");
+  const nota = notaOpcional(cuerpo?.note);
+  if (estado === null && dueAt === null && nota === null) {
+    // El `model_validator` de `TaskPatch`: loc ["body"], así que sin prefijo de campo.
+    invalido("Value error, provide at least one of: status, due_at, note");
+  }
+
+  if (!buscarLead(leadId)) noEncontrado("El lead no existe o es de otra agencia.");
+  const tarea = tareas.find(t => t.id === taskId && t.lead_id === leadId) ?? noEncontrado("Task not found");
+
+  // Solo pisa lo que no es null, como `patch_task` del API.
+  const actualizada: Task = {
+    ...tarea,
+    status: estado ?? tarea.status,
+    due_at: dueAt ?? tarea.due_at,
+    note: nota ?? tarea.note,
+  };
+  tareas = tareas.map(t => (t.id === taskId ? actualizada : t));
+  return actualizada;
+}
+
+/* ---------- leads en riesgo (HU-10, HU-13) ---------- */
+
+/** `RESPONSE_TYPES` del API: lo único que cuenta como contestarle al cliente. */
+const TIPOS_RESPUESTA: ReadonlySet<string> = new Set(["MESSAGE", "CALL"]);
+
+/**
+ * Mismo predicado que `leads_at_risk` en services/lead.py (leído el
+ * 2026-10-13): `OUTBOUND`, `MESSAGE` o `CALL`, y que no lo escribió un
+ * `AI_AGENT`. Un `created_by` nulo cuenta como humano (allá es un outer join).
+ */
+function esRespuestaHumana(i: Interaction): boolean {
+  return i.direction === "OUTBOUND"
+    && TIPOS_RESPUESTA.has(i.type)
+    && agentes.find(a => a.id === i.created_by)?.role !== "AI_AGENT";
+}
+
+/** Un entero de la query con los límites de `Query(ge=, le=)` del API. */
+function enteroDeQuery(params: URLSearchParams, clave: string, porDefecto: number, min: number, max: number): number {
+  const crudo = params.get(clave);
+  if (crudo === null) return porDefecto;
+  const n = Number(crudo);
+  if (!crudo.trim() || !Number.isInteger(n)) {
+    invalido(`${clave}: Input should be a valid integer, unable to parse string as an integer`);
+  }
+  if (n < min) invalido(`${clave}: Input should be greater than or equal to ${min}`);
+  if (n > max) invalido(`${clave}: Input should be less than or equal to ${max}`);
+  return n;
+}
+
+/**
+ * GET /leads/at-risk. Sin `hours` usa 72 (`INACTIVITY_HOURS` del API); el
+ * front siempre lo manda. No terminales, creados antes del corte y sin
+ * respuesta humana desde el corte; más viejos primero y cortado en `limit`.
+ * Toda la agencia: el mock solo tiene una.
+ */
+function leadsEnRiesgoMock(params: URLSearchParams): Lead[] {
+  const hours = enteroDeQuery(params, "hours", 72, 1, 8760);
+  const limit = enteroDeQuery(params, "limit", 100, 1, 500);
+  const corte = Date.now() - hours * 3_600_000;
+  const respondidoDesdeElCorte = (leadId: string) =>
+    interacciones.some(i => i.lead_id === leadId && esRespuestaHumana(i) && Date.parse(i.occurred_at) >= corte);
+
+  return leads
+    .filter(l => !esTerminal(l.current_stage))
+    .filter(l => Date.parse(l.created_at) < corte)
+    .filter(l => !respondidoDesdeElCorte(l.id))
+    .sort((a, b) => a.created_at.localeCompare(b.created_at))
+    .slice(0, limit)
+    .map(aLeadOut);
+}
+
 function enviarEncuestaMock(citaId: string, cuerpo: Record<string, unknown> | undefined): Feedback {
   const cita = citas.find(c => c.id === citaId);
   if (!cita) noEncontrado("La cita no existe o es de otra agencia.");
@@ -1021,7 +1173,7 @@ const COHORTE_HISTORICA: readonly RegistroAnalitica[] = (() => {
 })();
 
 /**
- * Los 14 leads del tablero, leídos del estado en memoria: hasta dónde llegaron
+ * Los 15 leads del tablero, leídos del estado en memoria: hasta dónde llegaron
  * sale del log de transiciones y el motivo de pérdida de su STATUS_CHANGE,
  * así que mover un lead en el tablero cambia el embudo, como en el API.
  */
@@ -1207,6 +1359,8 @@ export async function resolverMock(path: string, method: string = "GET", body?: 
     return slotsMock(match[1], searchParams);
   }
   if (pathname === "/leads" && m === "GET") return leadsMock(searchParams);
+  // Antes de `/leads/{id}`, que si no se lo come como un id.
+  if (pathname === "/leads/at-risk" && m === "GET") return leadsEnRiesgoMock(searchParams);
   if ((match = pathname.match(/^\/leads\/([^/]+)$/)) && m === "GET") {
     return leadPorIdMock(match[1]);
   }
@@ -1229,8 +1383,12 @@ export async function resolverMock(path: string, method: string = "GET", body?: 
     if (m === "GET") return interaccionesDelLeadMock(match[1]);
     if (m === "POST") return crearInteraccionMock(match[1], cuerpo);
   }
-  if ((match = pathname.match(/^\/leads\/([^/]+)\/tasks$/)) && m === "GET") {
-    return tareasDelLeadMock(match[1]);
+  if ((match = pathname.match(/^\/leads\/([^/]+)\/tasks$/))) {
+    if (m === "GET") return tareasDelLeadMock(match[1]);
+    if (m === "POST") return crearTareaMock(match[1], cuerpo);
+  }
+  if ((match = pathname.match(/^\/leads\/([^/]+)\/tasks\/([^/]+)$/)) && m === "PATCH") {
+    return actualizarTareaMock(match[1], match[2], cuerpo);
   }
   if ((match = pathname.match(/^\/appointments\/([^/]+)\/feedback$/))) {
     if (m === "POST") return enviarEncuestaMock(match[1], cuerpo);
@@ -1245,4 +1403,5 @@ export const MOCK_IDS = {
   APPOINTMENT_ID, APPOINTMENT_ID_CANCELADA, APPOINTMENT_ID_NO_COMPLETADA, APPOINTMENT_ID_COMPLETADA,
   LEAD_ID_NEGOCIANDO, LEAD_ID_GANADO, LEAD_ID_PERDIDO, PROPERTY_ID_DOBLE,
   AGENT_ID_PAULA, AGENT_ID_ANDRES, AGENT_ID_INACTIVO, AGENT_ID_BOT,
+  TASK_ID, LEAD_ID_RECIENTE, LEAD_ID_ATENDIDO, LEAD_ID_SOLO_BOT, LEAD_ID_SOLO_NOTA,
 };

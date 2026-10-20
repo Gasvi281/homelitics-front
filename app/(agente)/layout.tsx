@@ -1,8 +1,10 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { AgenteActualProvider } from "@/features/agentes/AgenteActual";
+import { AlertaRiesgo } from "@/features/riesgo/components/AlertaRiesgo";
 import { obtenerAgenteActual } from "@/lib/agente-actual";
 import type { Agent } from "@/lib/schemas";
+import { leerUmbral } from "@/lib/umbral";
 
 /**
  * Layout del grupo (agente): pantallas que requieren identidad de agente, a
@@ -21,6 +23,9 @@ import type { Agent } from "@/lib/schemas";
  * para que los Client Components sepan su rol (`useEsAdmin()`). Si /me falla,
  * las pantallas siguen funcionando: solo se esconde lo que es de admin, y
  * cada pantalla muestra su propio error si el API de verdad no responde.
+ *
+ * El header lleva `AlertaRiesgo` (2.16 — HU-10 AC2) con el umbral de la
+ * cookie, el mismo que lee el tablero.
  */
 export default async function AgenteLayout({ children }: { children: ReactNode }) {
   let agente: Agent | null = null;
@@ -31,6 +36,7 @@ export default async function AgenteLayout({ children }: { children: ReactNode }
   }
   // Solo para no mostrar un enlace inútil: el API responde 403 igual.
   const esAdmin = agente?.role === "TEAM_ADMIN";
+  const umbral = await leerUmbral();
 
   return (
     <AgenteActualProvider agente={agente}>
@@ -46,6 +52,12 @@ export default async function AgenteLayout({ children }: { children: ReactNode }
                 Embudo
               </Link>
             )}
+            {esAdmin && (
+              <Link href="/riesgo" className="text-neutral-600 hover:text-neutral-900">
+                Leads en riesgo
+              </Link>
+            )}
+            <AlertaRiesgo umbral={umbral} />
           </nav>
         </header>
         {children}

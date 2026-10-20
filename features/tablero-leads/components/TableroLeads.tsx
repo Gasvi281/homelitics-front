@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DndContext, DragOverlay, KeyboardSensor, PointerSensor, pointerWithin, rectIntersection,
   useDraggable, useDroppable, useSensor, useSensors,
@@ -8,7 +8,10 @@ import {
   type DragStartEvent, type KeyboardCoordinateGetter, type Over,
 } from "@dnd-kit/core";
 import { HomeliticsError } from "@/lib/homelitics-navegador";
+import { useHidratado } from "@/lib/hidratado";
 import { ETIQUETA_ETAPA, puedeMover } from "@/lib/etapas";
+import { useUmbral } from "@/lib/umbral-navegador";
+import { useLeadsEnRiesgo } from "@/features/riesgo/hooks";
 import type { LeadCard, Stage } from "@/lib/schemas";
 import { Aviso } from "@/components/Aviso";
 import { ModalPerdido } from "@/components/ModalPerdido";
@@ -39,16 +42,30 @@ import { TarjetaLead } from "./TarjetaLead";
  * Con `?etapa=WON|LOST` (2.12 — HU-09 AC2) no hay tablero sino una lista de
  * solo lectura de los cerrados, sin arrastre.
  *
+ * Leads en riesgo (2.15 — HU-10 AC3): las tarjetas que GET /leads/at-risk
+ * devuelve con el umbral vigente salen con borde rojo y una etiqueta. La
+ * consulta va aparte del tablero: si falla, el tablero sigue igual, sin
+ * resaltar, y una línea lo dice. `umbral` es lo que leyó la página con
+ * `leerUmbral()`; `useUmbral()` lo sigue si se cambia en otra parte.
+ *
+ * Con `?riesgo=1` (2.16 — HU-10 AC2) solo quedan las tarjetas en riesgo.
+ * Es un filtro del front sobre la misma lista: mientras no se sepa cuáles
+ * están en riesgo, o si esa consulta falló sin dato anterior, el tablero no
+ * se muestra a medias, lo dice.
+ *
  * Pendiente de 2.10: el menú "Mover a…" (táctil y alternativa sin arrastre).
  */
-export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
+export function TableroLeads({ filtros, umbral }: { filtros: FiltrosTablero; umbral: number }) {
   const { data: leads, error, isPending, isFetching } = useLeadsTablero(filtros);
+  const [horas] = useUmbral(umbral);
+  const riesgo = useLeadsEnRiesgo(horas, { enabled: !esVistaCerrados(filtros) });
+  const enRiesgo = new Set(riesgo.data?.map(l => l.id));
   // "Actualizando…" solo después de hidratar: si el dato precargado ya pasó
   // su `staleTime` cuando el navegador hidrata (compilación lenta, pestaña
   // oculta), useQuery relee al montar e `isFetching` es true en el primer
   // render del cliente pero false en el servidor — y React tumba la
-  // hidratación por ese <span> de más.
-  const actualizando = useHidratado() && isFetching;
+  // hidratación por ese <span> de más. Lo mismo con la consulta de riesgo.
+  const actualizando = useHidratado() && (isFetching || riesgo.isFetching);
   const moviendose = useLeadsMoviendose();
   const [aviso, setAviso] = useState<{ mensaje: string; reintentar?: MoverLead } | null>(null);
   const moverLead = useMoverLead({
@@ -95,8 +112,21 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
     );
   }
 
+  const soloRiesgo = filtros.riesgo === "1";
+  if (soloRiesgo && !riesgo.data) {
+    return riesgo.error ? (
+      <Aviso variante="error">
+        No pudimos revisar qué leads llevan más de {horas} h sin respuesta. Quita el filtro de riesgo para ver el tablero.
+      </Aviso>
+    ) : (
+      <Aviso>Buscando los leads sin respuesta hace más de {horas} h…</Aviso>
+    );
+  }
+
   const columnas = filtros.etapa ? [filtros.etapa] : ETAPAS_ABIERTAS;
-  const porEtapa = agrupar(leads);
+  const visibles = soloRiesgo ? leads.filter(l => enRiesgo.has(l.id)) : leads;
+  const porEtapa = agrupar(visibles);
+  const visiblesEnRiesgo = leads.filter(l => enRiesgo.has(l.id)).length;
 
   function mover(vars: MoverLead) {
     setAviso(null);
@@ -125,8 +155,20 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
     <div>
       <div className="mb-2 flex min-h-5 flex-wrap items-center gap-x-4 text-xs text-neutral-500">
         <span>{leads.length === 1 ? "1 lead abierto" : `${leads.length} leads abiertos`}</span>
+        {(visiblesEnRiesgo > 0 || soloRiesgo) && (
+          <span className="text-red-700">
+            {visiblesEnRiesgo === 1 ? "1 sin respuesta" : `${visiblesEnRiesgo} sin respuesta`} hace más de {horas} h
+          </span>
+        )}
         {actualizando && <span>Actualizando…</span>}
         {error && <span className="text-red-700">{mensajeError(error)}</span>}
+        {riesgo.error && (
+          <span>
+            {riesgo.data
+              ? "No pudimos actualizar los leads sin respuesta; el resaltado puede estar desactualizado."
+              : `No pudimos revisar qué leads llevan más de ${horas} h sin respuesta; el tablero se muestra sin ese resaltado.`}
+          </span>
+        )}
       </div>
 
       {leads.length === LIMITE_TABLERO && (
@@ -161,8 +203,12 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
         </div>
       )}
 
-      {leads.length === 0 ? (
-        <Aviso>No hay leads abiertos con estos filtros.</Aviso>
+      {visibles.length === 0 ? (
+        <Aviso>
+          {soloRiesgo
+            ? `Ningún lead lleva más de ${horas} h sin respuesta con estos filtros.`
+            : "No hay leads abiertos con estos filtros."}
+        </Aviso>
       ) : (
         <DndContext
           // Id fijo: el que genera @dnd-kit sale de un contador global que
@@ -185,6 +231,8 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
                   leads={porEtapa.get(etapa) ?? []}
                   activo={activo}
                   moviendose={moviendose}
+                  enRiesgo={enRiesgo}
+                  umbral={horas}
                 />
               ))}
               <ZonaGanado activo={activo} />
@@ -194,7 +242,7 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
           <DragOverlay>
             {activo && (
               <div className="rotate-1 cursor-grabbing rounded-lg shadow-lg">
-                <TarjetaLead lead={activo} />
+                <TarjetaLead lead={activo} enRiesgo={enRiesgo.has(activo.id)} umbral={horas} />
               </div>
             )}
           </DragOverlay>
@@ -279,12 +327,14 @@ function estiloDestino(valida: boolean | null, encima: boolean): string {
 }
 
 function Columna({
-  etapa, leads, activo, moviendose,
+  etapa, leads, activo, moviendose, enRiesgo, umbral,
 }: {
   etapa: Stage;
   leads: LeadCard[];
   activo: LeadCard | null;
   moviendose: Set<string>;
+  enRiesgo: Set<string>;
+  umbral: number;
 }) {
   const valida = acepta(activo, etapa);
   const { setNodeRef, isOver } = useDroppable({ id: etapa, disabled: valida === false });
@@ -304,7 +354,12 @@ function Columna({
         <ul className="mt-3 flex flex-col gap-2">
           {leads.map(lead => (
             <li key={lead.id}>
-              <TarjetaArrastrable lead={lead} pendiente={moviendose.has(lead.id)} />
+              <TarjetaArrastrable
+                lead={lead}
+                pendiente={moviendose.has(lead.id)}
+                enRiesgo={enRiesgo.has(lead.id)}
+                umbral={umbral}
+              />
             </li>
           ))}
         </ul>
@@ -318,7 +373,14 @@ function Columna({
  * conserva su rol (no se vuelve `role="button"`) y los eventos le llegan
  * igual por burbujeo. Una tarjeta con un movimiento en vuelo no se arrastra.
  */
-function TarjetaArrastrable({ lead, pendiente }: { lead: LeadCard; pendiente: boolean }) {
+function TarjetaArrastrable({
+  lead, pendiente, enRiesgo, umbral,
+}: {
+  lead: LeadCard;
+  pendiente: boolean;
+  enRiesgo: boolean;
+  umbral: number;
+}) {
   const { setNodeRef, listeners, attributes, isDragging } = useDraggable({
     id: lead.id,
     data: { lead },
@@ -333,6 +395,8 @@ function TarjetaArrastrable({ lead, pendiente }: { lead: LeadCard; pendiente: bo
       <TarjetaLead
         lead={lead}
         pendiente={pendiente}
+        enRiesgo={enRiesgo}
+        umbral={umbral}
         descripcion={pendiente ? undefined : attributes["aria-describedby"]}
       />
     </div>
@@ -566,15 +630,4 @@ function mensajeError(e: unknown): string {
     default:
       return e.detail;
   }
-}
-
-const sinSuscripcion = () => () => {};
-
-/**
- * false en el servidor y durante la hidratación, true desde ahí. Con
- * useSyncExternalStore y no con un useEffect: en una navegación del lado del
- * cliente (sin hidratación) ya es true en el primer render.
- */
-function useHidratado() {
-  return useSyncExternalStore(sinSuscripcion, () => true, () => false);
 }

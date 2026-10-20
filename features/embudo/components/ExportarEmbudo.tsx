@@ -2,24 +2,12 @@
 
 import { useState } from "react";
 import { api } from "@/lib/homelitics-navegador";
+import { descargar } from "@/lib/descargar";
 import { useAgenteActual } from "@/features/agentes/AgenteActual";
 import { nombreAgente, useAgentes } from "@/features/agentes/hooks";
 import { usePropiedades } from "@/features/tablero-leads/hooks";
 import { aFiltrosApiEmbudo, nombreArchivoEmbudo, rangoInvalido, type FiltrosEmbudo } from "../claves";
 import { mensajeErrorAnalitica, useEmbudo } from "../hooks";
-
-/** Descarga el blob con ese nombre de archivo. */
-function descargar(blob: Blob, nombre: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = nombre;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  // Después del clic: revocar en el mismo tick cancela la descarga en algunos navegadores.
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
 
 /**
  * Exportar el embudo (HU-17 AC3) con los filtros de la URL:
