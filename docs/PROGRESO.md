@@ -1824,3 +1824,44 @@ Pendiente:
   mande mensajes (Telegram lo maneja L3).
 - `client_name` sigue faltando siempre (bloqueo 12), así que casi todo
   mensaje pasa por la confirmación de faltantes si el agente no lo completa.
+
+## 2026-10-20 — Tarea 2.24: endpoints propuestos en el contrato (bloqueos 9 a 12)
+
+Solo documentación. Nueva sección 8, "Propuestos (no existen todavía)", al
+final de `docs/API_CONTRACT.md`, con forma de respuesta, filtros, errores
+(401, 403, 404, 422) y la tarea del front que consume cada uno:
+
+- `GET /tasks?status=&due_before=&agent_id=&limit=` → `list[TaskOut]`, por
+  agencia (bloqueo 9; 2.25 y 2.26).
+- `source` en `TaskOut`: `MANUAL | SWEEP | FIRST_TOUCH` (bloqueo 11; 2.25 y
+  2.26).
+- `GET /leads/at-risk` con `LeadCard` y filtros `agent_id`, `created_from`,
+  `created_to`, `property_id` (bloqueo 10).
+- `client_name` en `GET /leads/{id}`, propuesto como `LeadCard` completo
+  (bloqueo 12).
+- `GET /analytics/at-risk-by-agent?hours=&from=&to=&property_id=&format=csv`,
+  solo `TEAM_ADMIN`, JSON por agente y CSV como el del embudo (bloqueos 10 y
+  15; 2.25 y 2.27).
+
+Revisado antes contra `/openapi.json` (2026-10-20): **ninguno existe**.
+`at-risk` y `GET /leads/{id}` siguen en `LeadOut` y `TaskOut` sigue con siete
+campos, así que nada pasó a la sección 3.
+
+Decidido:
+- La sección abre diciendo que solo el bloque F (2.25–2.27) puede usarla, y
+  solo con mocks; cada endpoint se mueve a la sección 3 cuando se confirme.
+- En los listados no hay 404: un id de otra agencia en un filtro da lista
+  vacía. Es propuesta, no comportamiento verificado.
+- `at-risk` con `LeadCard` y `client_name` en el perfil no los consume
+  ninguna tarea del bloque F. Aprovecharlos (2.15–2.18, 2.21–2.23) será una
+  tarea nueva cuando existan; la sección lo dice para que nadie los use
+  antes.
+- `at-risk-by-agent` sin tope de 500, agentes por `leads_at_risk`
+  descendente, `leads` como `list[LeadCard]`, CSV de una fila por lead y
+  `last_response_at` como deseable (bloqueo 15).
+
+Pendiente:
+- Llevarle la sección a L1. Puntos abiertos: `from`/`to` frente a
+  `created_from`/`created_to` del embudo, y si `GET /tasks?status=PENDING`
+  debe contar los `SNOOZED` vencidos.
+- 2.25 (mocks con esta forma) y 2.26 (campanita).

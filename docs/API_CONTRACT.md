@@ -743,3 +743,188 @@ necesita hoy. Se listan para no reinventarlos si hiciera falta:
 `POST /leads/{lead_id}/reassign`, `GET /analytics/funnel` y
 `GET /analytics/lost-reasons` estaban en esta lista; desde el 2026-09-27
 están documentados en la sección 3 (HU-08 y HU-17).
+
+## 8. Propuestos (no existen todavía)
+
+**Nada de esta sección existe en el API.** Es lo que la línea 2 le pide a L1
+para la épica E3 (tarea 2.24 de `docs/SPRINT_E3_LINEA2.md`, bloqueos 9 a
+12). Solo las tareas del **bloque F** de ese archivo (2.25, 2.26 y 2.27)
+pueden usarlo, y únicamente contra los mocks de `lib/mock/`. Ninguna otra
+pantalla, hook ni esquema puede asumir un endpoint o campo de aquí.
+
+Cuando uno se confirme en `/openapi.json`, se **mueve** a su sección real
+(la 3, junto a los endpoints que ya existen) con la fecha de la
+confirmación y lo que haya cambiado respecto a esta propuesta, y se borra
+de aquí. Si L1 lo publica con otra forma, manda lo que diga `/openapi.json`,
+no esta sección.
+
+Revisado contra `/openapi.json` el 2026-10-20: ninguno de los cinco existe.
+`GET /leads/at-risk` y `GET /leads/{lead_id}` siguen respondiendo `LeadOut`,
+`TaskOut` sigue con sus siete campos y no hay `GET /tasks` ni
+`/analytics/at-risk-by-agent`.
+
+Errores comunes a todos (sección 1): **401** si el token falta, venció o es
+de otro proyecto, y **403** si el token es válido pero no tiene agente
+vinculado. Abajo van solo los propios de cada uno.
+
+### `GET /tasks` — bloqueo 9 · consumen **2.25** (mock) y **2.26** (campanita)
+
+Las tareas de **toda la agencia** del token, con el mismo criterio que
+`GET /leads/at-risk`: filtra por `agency_id`, no por agente. Un `AGENT` que
+quiere solo las suyas manda `agent_id`.
+
+Query, todos opcionales:
+
+| Parámetro | Tipo | Nota |
+|---|---|---|
+| `status` | `PENDING` \| `DONE` \| `SNOOZED` | sin él, todas |
+| `due_before` | timestamp ISO-8601 con offset | `due_at < due_before` (exclusivo) |
+| `agent_id` | uuid | dueño de la tarea (`TaskOut.agent_id`, que es el dueño del lead) |
+| `limit` | 1–200, por defecto 50 | convención de paginación (sección 2) |
+
+Respuesta **200** `list[TaskOut]`, ordenada por `due_at` ascendente (la más
+vencida primero). Misma forma que `GET /leads/{lead_id}/tasks`, más `source`
+si se aprueba el bloqueo 11:
+```json
+[{ "id":"uuid", "lead_id":"uuid", "agent_id":"uuid",
+   "due_at":"2026-10-20T15:00:00Z", "note":"string|null",
+   "status":"PENDING", "created_at":"...", "source":"MANUAL" }]
+```
+
+Errores:
+- **404** — no aplica: es un listado. Propuesto: un `agent_id` de otra
+  agencia o inexistente da lista vacía, no 404. El front trata igual los dos
+  casos (no hay recordatorios que mostrar).
+- **422** — `status` fuera del enum, `due_before` sin offset o mal formado,
+  `limit` fuera de rango. El front arma `due_before` con
+  `new Date().toISOString()` (siempre `Z`).
+
+Uso en el front: 2.26 pide
+`GET /tasks?status=PENDING&due_before=<ahora>&agent_id=<yo>` cada minuto.
+Una tarea `SNOOZED` con `due_at` vencido no sale con `status=PENDING`: si el
+API la cuenta como pendiente o el front hace dos consultas se decide con L1
+al publicarlo.
+
+### Campo `source` en `TaskOut` — bloqueo 11 · consumen **2.25** (mock) y **2.26**
+
+Un campo más, obligatorio, en todo `TaskOut`: `GET`/`POST
+/leads/{lead_id}/tasks`, `PATCH .../tasks/{task_id}` y `GET /tasks`.
+
+| Valor | Quién crea la tarea |
+|---|---|
+| `MANUAL` | un agente, con `POST /leads/{lead_id}/tasks` |
+| `SWEEP` | el barrido horario (`core.sweep_inactive_leads`) |
+| `FIRST_TOUCH` | el *first-touch* del relay |
+
+- No va en `TaskCreate` ni en `TaskPatch`: lo pone el API. Un `POST` del
+  front siempre devuelve `MANUAL`.
+- Sin errores propios: no cambia ningún código de los endpoints existentes
+  (401, 403, 404 y 422 siguen como en la sección 3).
+- En el front entraría como `z.enum([...])` en `TaskSchema`. Mientras no
+  exista, solo el mock de 2.25 lo lleva. El panel de 2.19 no lo lee (ver
+  "Hueco conocido" en `docs/SPRINT_E3_LINEA2.md`); usarlo ahí sería una
+  tarea nueva, fuera del bloque F.
+
+### `GET /leads/at-risk` con `LeadCard` y filtros — bloqueo 10 · ninguna tarea del bloque F
+
+Mismo endpoint y mismo predicado de riesgo que hoy (sección 3), con dos
+cambios:
+
+1. Responde **`list[LeadCard]`** (la forma de `GET /leads`, sección 3) en vez
+   de `list[LeadOut]`: trae `client_name`, `listing_address`,
+   `neighborhood`, `operation_type`, `asking_price` y `last_interaction`.
+2. Acepta filtros opcionales, con la semántica de `GET /leads`:
+
+| Parámetro | Tipo | Nota |
+|---|---|---|
+| `hours` | 1–8760 | igual que hoy; el front lo sigue mandando siempre |
+| `limit` | 1–500, por defecto 100 | igual que hoy |
+| `agent_id` | uuid | dueño del lead |
+| `created_from` | `YYYY-MM-DD` | inclusivo, zona de la agencia |
+| `created_to` | `YYYY-MM-DD` | inclusivo, zona de la agencia |
+| `property_id` | uuid | todas las publicaciones del inmueble, `SALE` y `RENT` |
+
+Errores:
+- **404** — no aplica (listado). Un id de otra agencia en un filtro da lista
+  vacía, como se propone para `GET /tasks`.
+- **422** — `hours` o `limit` fuera de rango (igual que hoy), y
+  `created_from > created_to` con la forma simple de `GET /leads`
+  (`{"detail": "created_from is after created_to"}`).
+
+Quién lo consumiría: **ninguna tarea del bloque F**. Lo aprovecharían
+2.15–2.18 (dejar de cruzar `listing_id` con `GET /listings` y de filtrar en
+el cliente), pero cambiarlas es una tarea nueva cuando se confirme. Para
+HU-13, 2.27 usa `/analytics/at-risk-by-agent`, no este.
+
+### `client_name` en `GET /leads/{lead_id}` — bloqueo 12 · ninguna tarea del bloque F
+
+Que `GET /leads/{lead_id}` responda **`LeadCard`** en vez de `LeadOut`. Lo
+mínimo es `client_name: string | null`; la tarjeta completa trae además
+`listing_address` y `neighborhood`, que también son variables de las
+plantillas de HU-12.
+
+Errores, los mismos de hoy:
+- **404** — lead inexistente o de otra agencia.
+- **422** — `lead_id` que no es uuid.
+
+Quién lo consumiría: **ninguna tarea del bloque F**. Lo necesitan las
+plantillas (2.21–2.23) para `{client_name}`, que hoy siempre sale
+`[falta: nombre del cliente]`. Conectarlo es una tarea nueva cuando se
+confirme. `POST /leads` y `POST /leads/{lead_id}/reassign` pueden seguir
+devolviendo `LeadOut`.
+
+### `GET /analytics/at-risk-by-agent` — bloqueos 10 y 15 · consumen **2.25** (mock) y **2.27**
+
+**Solo `TEAM_ADMIN`**, como `GET /analytics/funnel`. El reporte de HU-13
+hecho en el servidor: los leads en riesgo de la agencia agrupados por
+agente, **sin el tope de 500** de `GET /leads/at-risk`.
+
+Query:
+
+| Parámetro | Tipo | Nota |
+|---|---|---|
+| `hours` | 1–8760 | mismo predicado que `at-risk`; el front lo manda siempre |
+| `from` | `YYYY-MM-DD` | sobre `created_at`, inclusivo, zona de la agencia |
+| `to` | `YYYY-MM-DD` | ídem |
+| `property_id` | uuid | todas las publicaciones del inmueble |
+| `format` | `json` \| `csv` | por defecto `json` |
+
+`from`/`to` se llaman así en la propuesta; en `/analytics/funnel` y
+`GET /leads` son `created_from`/`created_to`. Si L1 prefiere alinearlos,
+manda lo que publique.
+
+Respuesta JSON:
+```json
+{ "hours": 24,
+  "total": 12,
+  "agents": [
+    { "agent_id":"uuid", "full_name":"Paula Gómez",
+      "leads_at_risk": 5, "oldest_created_at":"2026-10-01T14:00:00Z",
+      "leads": [ { "...": "LeadCard" } ] }
+  ],
+  "filters": { "from":"2026-10-01", "property_id":"uuid" } }
+```
+- `agents` ordenado por `leads_at_risk` descendente (criterio de 2.17). Un
+  agente sin leads en riesgo no aparece.
+- `total` es la suma de `leads_at_risk`.
+- `full_name` es `string | null`, como en `GET /agents`.
+- `leads` es `list[LeadCard]`, más viejos primero, como `at-risk`.
+- `filters` es el eco de los filtros que llegaron con valor, como en el
+  embudo; nunca `format` ni `hours` (que va aparte).
+- Deseable (bloqueo 15): un `last_response_at` (timestamp o `null`) por
+  lead, para que "días sin respuesta" deje de contarse desde `created_at`.
+
+`format=csv`: `text/csv` con `Content-Disposition: attachment;
+filename="at-risk-by-agent.csv"`, generado igual que el del embudo
+(`csv.writer`, `\r\n`, `None` como celda vacía). Una fila por lead,
+agrupadas por agente en el orden del JSON. Cabecera propuesta:
+`agent_id,agent_name,lead_id,client_name,listing_address,current_stage,created_at`.
+El proxy ya reenvía `Content-Disposition`; el front descarga con su propio
+nombre, que incluye filtros y umbral, como en 2.18.
+
+Errores:
+- **403** — no es `TEAM_ADMIN` (`Message`, `"This action requires the
+  TEAM_ADMIN role"`), en JSON también con `format=csv`, como el embudo.
+- **404** — no aplica. Un `property_id` de otra agencia da `agents` vacío.
+- **422** — `hours` fuera de rango, `from` posterior a `to` (forma simple),
+  `format` desconocido.
