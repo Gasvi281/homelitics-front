@@ -141,6 +141,8 @@ DEMO_AGENT_EMAIL=<agente demo, etapa 1>
 DEMO_AGENT_PASSWORD=<contraseña compartida, etapa 1>
 USE_MOCKS=true
 NEXT_PUBLIC_USE_MOCKS=true
+USE_MOCK_TAREAS_AGENCIA=true
+USE_MOCK_RIESGO_POR_AGENTE=true
 ```
 
 `USE_MOCKS=true` hace que `lib/homelitics.ts` devuelva datos de `lib/mock/` sin
@@ -151,6 +153,17 @@ del navegador las variables con prefijo `NEXT_PUBLIC_`, y
 `lib/homelitics-navegador.ts` (la mitad de `lib/homelitics.ts` que usan los
 Client Components, ver esa sección) necesita saber si hay que usar mocks
 también del lado del cliente. Mantén los dos en el mismo valor.
+
+`USE_MOCK_TAREAS_AGENCIA` y `USE_MOCK_RIESGO_POR_AGENTE` son interruptores
+por endpoint (tarea 2.25) para los endpoints **propuestos** de
+`docs/API_CONTRACT.md` §8 que todavía no existen: `GET /tasks` y
+`GET /analytics/at-risk-by-agent`. Con `USE_MOCKS=false`, esos dos siguen
+respondiendo desde `lib/mock/` mientras su variable no diga `false` (sin la
+variable cuenta como `true`: pegarle al API daría 404). Los lee
+`lib/interruptores.ts`, solo en el servidor: `lib/homelitics.ts` y el proxy
+los consultan, así que no llevan espejo `NEXT_PUBLIC_`. Cuando L1 publique
+uno: verificarlo en `/openapi.json`, ponerlo en `false`, probar en vivo y
+después borrar el interruptor, como se hizo con `GET /agents` (bloqueo 7).
 
 ## Bitácora
 

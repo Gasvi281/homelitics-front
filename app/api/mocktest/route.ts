@@ -226,5 +226,59 @@ export async function GET() {
       resolverMock(`/leads/a10a1000-0000-4000-8000-00000000ffff/tasks/${MOCK_IDS.TASK_ID}`, "PATCH", "{}")),
     await probar("patch tarea de otro lead", () => api.actualizarTarea(MOCK_IDS.LEAD_ID_VACIO, MOCK_IDS.TASK_ID, { status: "DONE" })),
     await probar("tareas del lead", async () => (await api.tareas(MOCK_IDS.LEAD_ID)).map(t => [t.status, t.due_at])),
+    // 2.25 (PROPUESTO). GET /tasks. Va después de "tarea hecha": TASK_ID ya es DONE.
+    await probar("tareas agencia: vencidas del demo (lo que pide la campanita)", async () =>
+      (await api.tareasAgencia({ status: "PENDING", due_before: new Date().toISOString(), agent_id: MOCK_IDS.AGENT_ID }))
+        .map(t => [t.source, t.note, t.due_at])),
+    await probar("tareas agencia: la que vence en 3 min sale con due_before más tarde", async () =>
+      (await api.tareasAgencia({ status: "PENDING", due_before: new Date(Date.now() + 10 * 60_000).toISOString(), agent_id: MOCK_IDS.AGENT_ID }))
+        .some(t => t.id === MOCK_IDS.TASK_ID_POR_VENCER)),
+    await probar("tareas agencia: sin filtros, due_at ascendente", async () => {
+      const t = await api.tareasAgencia();
+      return { total: t.length, ordenadas: t.every((x, i) => i === 0 || Date.parse(t[i - 1].due_at) <= Date.parse(x.due_at)) };
+    }),
+    await probar("tareas agencia: SNOOZED", async () => (await api.tareasAgencia({ status: "SNOOZED" })).map(t => t.note)),
+    await probar("tareas agencia: de Paula", async () => (await api.tareasAgencia({ agent_id: MOCK_IDS.AGENT_ID_PAULA })).map(t => t.source)),
+    await probar("tareas agencia: agente ajeno da lista vacía", () => api.tareasAgencia({ agent_id: "a10a1000-0000-4000-8000-00000000ffff" })),
+    await probar("tareas agencia: limit 2", async () => (await api.tareasAgencia({ limit: 2 })).length),
+    await probar("tareas agencia: limit 201 (cliente)", () => api.tareasAgencia({ limit: 201 })),
+    await probar("tareas agencia: due_before sin zona (cliente)", () => api.tareasAgencia({ due_before: "2026-10-20T12:00:00" })),
+    await probar("tareas agencia: due_before sin zona (mock directo)", () => resolverMock("/tasks?due_before=2026-10-20T12:00:00")),
+    await probar("tareas agencia: status malo (mock directo)", () => resolverMock("/tasks?status=OPEN")),
+    await probar("source no sale en GET /leads/{id}/tasks", async () =>
+      ((await resolverMock(`/leads/${MOCK_IDS.LEAD_ID}/tasks`)) as object[]).some(t => "source" in t)),
+    // 2.25 (PROPUESTO). GET /analytics/at-risk-by-agent: mismos números que 2.17 con el mismo umbral.
+    ...(await Promise.all(([
+      ["riesgo por agente 24 h", { hours: 24 }],
+      ["riesgo por agente 1 h", { hours: 1 }],
+      ["riesgo por agente 8760 h", { hours: 8760 }],
+      ["riesgo por agente inmueble doble", { hours: 24, property_id: MOCK_IDS.PROPERTY_ID_DOBLE }],
+      ["riesgo por agente septiembre", { hours: 24, from: "2026-09-01", to: "2026-09-30" }],
+    ] as const).map(([nombre, f]) => probar(nombre, async () => {
+      const r = await api.riesgoPorAgente(f);
+      const cliente = (await api.leadsEnRiesgo({ hours: f.hours, limit: 500 })).length;
+      return {
+        total: r.total,
+        sumaCuadra: r.total === r.agents.reduce((s, g) => s + g.leads.length, 0),
+        agentes: r.agents.map(g => [g.full_name, g.leads_at_risk]),
+        igualQueAtRiskSinFiltros: Object.keys(r.filters).length ? "con filtros" : r.total === cliente,
+        filters: r.filters,
+      };
+    })))),
+    await probar("riesgo por agente hours 0", () => api.riesgoPorAgente({ hours: 0 })),
+    await probar("riesgo por agente fechas al revés", () => api.riesgoPorAgente({ hours: 24, from: "2026-09-10", to: "2026-09-01" })),
+    await probar("riesgo por agente fechas al revés (mock directo)", () => resolverMock("/analytics/at-risk-by-agent?hours=24&from=2026-09-10&to=2026-09-01")),
+    await probar("riesgo por agente format=xml (mock directo)", () => resolverMock("/analytics/at-risk-by-agent?hours=24&format=xml")),
+    await probar("riesgo por agente csv (mock directo)", async () =>
+      ((await resolverMock("/analytics/at-risk-by-agent?hours=24&format=csv")) as string).split("\r\n").slice(0, 3)),
+    await probar("riesgo por agente como AGENT", async () => {
+      const g = globalThis as { __homeliticsMock?: unknown };
+      g.__homeliticsMock = { rol: "AGENT" };
+      try {
+        return await api.riesgoPorAgente({ hours: 24 });
+      } finally {
+        g.__homeliticsMock = undefined;
+      }
+    }),
   ]);
 }

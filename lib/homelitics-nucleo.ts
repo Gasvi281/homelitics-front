@@ -13,7 +13,8 @@ import { HomeliticsError } from "./errores";
 import {
   AgentListItemSchema, AgentSchema, AppointmentSchema, AppointmentDetailSchema, FeedbackSchema,
   FunnelSchema, InteractionSchema, LeadCardSchema, LeadSchema, ListingSchema,
-  LostReasonStatSchema, SlotsSchema, TaskSchema, TransitionSchema,
+  LostReasonStatSchema, RiesgoPorAgenteSchema, SlotsSchema, TareaAgenciaSchema, TaskSchema,
+  TaskStatus, TransitionSchema,
   CreateAppointmentBody, CreateFeedbackBody, CreateInteractionBody,
   CreateTaskBody, CreateTransitionBody, PatchAppointmentBody, PatchTaskBody, ReassignBody,
   type AgentListItem, type OperationType, type Stage,
@@ -92,6 +93,44 @@ const ParamsLeadsEnRiesgo = z.object({
   limit: z.number().int().min(1, "El límite va de 1 a 500.").max(500, "El límite va de 1 a 500.").optional(),
 });
 
+/**
+ * PROPUESTO (docs/API_CONTRACT.md §8, bloqueo 9). Query de GET /tasks: las
+ * tareas de toda la agencia; quien quiera solo las suyas manda `agent_id`.
+ */
+export type FiltrosTareasAgencia = {
+  status?: TaskStatus;
+  /** Timestamp ISO-8601 con offset; `due_at < due_before`, exclusivo. */
+  due_before?: string;
+  /** Dueño de la tarea (el del lead). */
+  agent_id?: string;
+  /** 1–200; la propuesta usa 50 si no se manda. */
+  limit?: number;
+};
+
+const FiltrosTareasAgencia = z.object({
+  status: TaskStatus.optional(),
+  due_before: z.string().datetime({ offset: true, message: "La fecha límite va en ISO-8601 con zona." }).optional(),
+  agent_id: z.string().uuid("El agente no es un id válido.").optional(),
+  limit: z.number().int().min(1, "El límite va de 1 a 200.").max(200, "El límite va de 1 a 200.").optional(),
+});
+
+/**
+ * PROPUESTO (docs/API_CONTRACT.md §8, bloqueos 10 y 15). Query de GET
+ * /analytics/at-risk-by-agent (HU-13). `from`/`to` se llaman así en la
+ * propuesta, no `created_from`/`created_to`: si L1 los alinea, manda lo
+ * que publique.
+ */
+export type FiltrosRiesgoPorAgente = {
+  /** Entero 1–8760, obligatorio por lo mismo que en `leadsEnRiesgo`. */
+  hours: number;
+  /** Día `YYYY-MM-DD`, inclusivo, de `created_at` en la zona de la agencia. */
+  from?: string;
+  /** Día `YYYY-MM-DD`, inclusivo, de `created_at` en la zona de la agencia. */
+  to?: string;
+  /** El inmueble: SALE y RENT. */
+  property_id?: string;
+};
+
 export type Pedir =<T>(path: string, schema: z.ZodType<T>, init?: RequestInit) => Promise<T>;
 
 async function traducirError(res: Response): Promise<HomeliticsError> {
@@ -150,6 +189,12 @@ export type Transporte = { pedir: Pedir; pedirTexto: PedirTexto };
  */
 export function crearPedir(opts: {
   usarMocks: boolean;
+  /**
+   * Paths que salen del mock aunque `usarMocks` sea `false`: los endpoints
+   * propuestos que todavía no existen (lib/interruptores.ts). Solo la mitad
+   * servidor lo pasa; la del navegador cae en el proxy, que mira lo mismo.
+   */
+  mockPara?: (path: string) => boolean;
   urlPara: (path: string) => string;
   credenciales: () => Promise<Record<string, string>>;
 }): Transporte {
@@ -183,7 +228,7 @@ export function crearPedir(opts: {
   }
 
   async function pedirTexto(path: string, init: RequestInit = {}): Promise<string> {
-    if (opts.usarMocks) {
+    if (opts.usarMocks || opts.mockPara?.(path)) {
       const valor = await delMock(path, init);
       if (typeof valor !== "string") {
         throw new HomeliticsError("servidor", `El mock de ${path} no devolvió texto.`);
@@ -198,7 +243,7 @@ export function crearPedir(opts: {
     schema: z.ZodType<T>,
     init: RequestInit = {},
   ): Promise<T> {
-    if (opts.usarMocks) return schema.parse(await delMock(path, init));
+    if (opts.usarMocks || opts.mockPara?.(path)) return schema.parse(await delMock(path, init));
 
     const res = await enviar(path, init);
     if (res.status === 204) return schema.parse(undefined);
@@ -415,6 +460,31 @@ export function crearApi({ pedir, pedirTexto }: Transporte) {
         method: "PATCH",
         body: JSON.stringify(validarAntes(PatchTaskBody, body)),
       }),
+
+    /**
+     * PROPUESTO (2.25 — HU-11 AC2). GET /tasks: tareas de toda la agencia,
+     * `due_at` ascendente, con `source`. No existe en el API: con
+     * `USE_MOCKS=false` sigue en mock por `USE_MOCK_TAREAS_AGENCIA`. Una
+     * query fuera de rango se rechaza aquí, sin llamarlo.
+     */
+    tareasAgencia: async (q: FiltrosTareasAgencia = {}) =>
+      pedir(`/tasks?${query(validarAntes(FiltrosTareasAgencia, q))}`, z.array(TareaAgenciaSchema)),
+
+    /**
+     * PROPUESTO (2.25 — HU-13). GET /analytics/at-risk-by-agent: el reporte
+     * de riesgo agrupado en el servidor, sin el tope de 500. Solo
+     * `TEAM_ADMIN` (403 → `sin_permiso`). No existe en el API: con
+     * `USE_MOCKS=false` sigue en mock por `USE_MOCK_RIESGO_POR_AGENTE`. Lo
+     * consumirá 2.27.
+     */
+    riesgoPorAgente: async (q: FiltrosRiesgoPorAgente) => {
+      const { hours } = validarAntes(ParamsLeadsEnRiesgo, { hours: q.hours });
+      rechazarRangoAlReves(q.from, q.to);
+      return pedir(
+        `/analytics/at-risk-by-agent?${query({ ...q, hours })}`,
+        RiesgoPorAgenteSchema,
+      );
+    },
 
     /** Tarea 2.5. Devuelve 409 si la visita no está en COMPLETED. Ver bloqueo 2. */
     enviarEncuesta: (citaId: string, body: z.input<typeof CreateFeedbackBody>) =>

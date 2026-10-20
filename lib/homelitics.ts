@@ -15,6 +15,7 @@
  * o un HomeliticsError con un `kind` legible.
  */
 import { crearApi, crearPedir } from "./homelitics-nucleo";
+import { mockForzado } from "./interruptores";
 
 export { HomeliticsError } from "./errores";
 export type { ErrorKind } from "./errores";
@@ -27,6 +28,8 @@ function requireEnv(name: string): string {
 
 const transporte = crearPedir({
   usarMocks: process.env.USE_MOCKS === "true",
+  // Los endpoints propuestos que aún no existen (USE_MOCK_TAREAS_AGENCIA, …).
+  mockPara: mockForzado,
   urlPara: (path) => `${requireEnv("HOMELITICS_API_URL")}${path}`,
   credenciales: async () => {
     const { getAuthHeader } = await import("./session");
