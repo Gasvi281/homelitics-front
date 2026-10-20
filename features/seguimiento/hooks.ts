@@ -1,12 +1,45 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useMutation, useMutationState, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, HomeliticsError } from "@/lib/homelitics-navegador";
 import type { PatchTaskBody, Task } from "@/lib/schemas";
 import { claveTareasLead } from "@/features/tablero-leads/claves";
 
 export type NuevoRecordatorio = { dueAt: string; nota: string | null };
+
+/**
+ * Prefijo de la campanita (2.26). Lo invalidan crear un recordatorio,
+ * posponerlo y marcarlo hecho: sin eso, uno resuelto seguiría contando
+ * hasta la siguiente relectura (un minuto).
+ */
+export const PREFIJO_RECORDATORIOS_VENCIDOS = ["tareas", "vencidas"] as const;
+
+/** El máximo de GET /tasks (PROPUESTO): con más, la campanita dice "200+". */
+export const LIMITE_RECORDATORIOS = 200;
+
+/**
+ * Recordatorios vencidos del agente (2.26 — HU-11 AC2):
+ * `GET /tasks?status=PENDING&due_before=<ahora>&agent_id=<yo>`, PROPUESTO
+ * (bloqueo 9), así que hoy siempre sale del mock (`USE_MOCK_TAREAS_AGENCIA`).
+ *
+ * `due_before` se arma en cada lectura, no en la key: así la relectura de
+ * cada minuto trae lo que venció desde la anterior sin cambiar de key.
+ */
+export function useRecordatoriosVencidos(agenteId: string) {
+  return useQuery({
+    queryKey: [...PREFIJO_RECORDATORIOS_VENCIDOS, agenteId],
+    queryFn: () =>
+      api.tareasAgencia({
+        status: "PENDING",
+        due_before: new Date().toISOString(),
+        agent_id: agenteId,
+        limit: LIMITE_RECORDATORIOS,
+      }),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+}
 
 /**
  * POST /leads/{id}/tasks (HU-11 AC1). Al terminar invalida
@@ -19,7 +52,11 @@ export function useCrearRecordatorio(leadId: string) {
   return useMutation({
     mutationFn: ({ dueAt, nota }: NuevoRecordatorio) =>
       api.crearTarea(leadId, { due_at: dueAt, note: nota }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: claveTareasLead(leadId) }),
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: claveTareasLead(leadId) }),
+        qc.invalidateQueries({ queryKey: PREFIJO_RECORDATORIOS_VENCIDOS }),
+      ]),
   });
 }
 
@@ -82,6 +119,7 @@ export function useActualizarTarea(
     onSettled: () => {
       if (qc.isMutating({ mutationKey: claveActualizar(leadId) }) === 1) {
         void qc.invalidateQueries({ queryKey: clave, exact: true });
+        void qc.invalidateQueries({ queryKey: PREFIJO_RECORDATORIOS_VENCIDOS });
       }
     },
   });

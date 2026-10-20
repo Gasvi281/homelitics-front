@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { AgenteActualProvider } from "@/features/agentes/AgenteActual";
 import { AlertaRiesgo } from "@/features/riesgo/components/AlertaRiesgo";
+import { CampanaRecordatorios } from "@/features/seguimiento/components/CampanaRecordatorios";
 import { obtenerAgenteActual } from "@/lib/agente-actual";
 import type { Agent } from "@/lib/schemas";
 import { leerUmbral } from "@/lib/umbral";
@@ -25,7 +26,8 @@ import { leerUmbral } from "@/lib/umbral";
  * cada pantalla muestra su propio error si el API de verdad no responde.
  *
  * El header lleva `AlertaRiesgo` (2.16 — HU-10 AC2) con el umbral de la
- * cookie, el mismo que lee el tablero.
+ * cookie, el mismo que lee el tablero, y a su lado `CampanaRecordatorios`
+ * (2.26 — HU-11 AC2).
  */
 export default async function AgenteLayout({ children }: { children: ReactNode }) {
   let agente: Agent | null = null;
@@ -57,7 +59,10 @@ export default async function AgenteLayout({ children }: { children: ReactNode }
                 Leads en riesgo
               </Link>
             )}
-            <AlertaRiesgo umbral={umbral} />
+            <div className="ml-auto flex items-center gap-3">
+              <AlertaRiesgo umbral={umbral} />
+              <CampanaRecordatorios />
+            </div>
           </nav>
         </header>
         {children}

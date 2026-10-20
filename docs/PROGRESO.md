@@ -1865,3 +1865,68 @@ Pendiente:
   `created_from`/`created_to` del embudo, y si `GET /tasks?status=PENDING`
   debe contar los `SNOOZED` vencidos.
 - 2.25 (mocks con esta forma) y 2.26 (campanita).
+
+## 2026-10-20 — Tareas 2.25 y 2.26: mocks de lo propuesto y campanita de recordatorios (HU-11 AC2)
+
+**Solo con mocks. Falta la prueba en vivo:** `GET /tasks` y
+`GET /analytics/at-risk-by-agent` siguen sin existir en `/openapi.json`, así
+que nada de esto se ha probado contra el API real.
+
+**Hecho (2.25).**
+- `lib/schemas.ts`: sección "PROPUESTO" con `TaskSource`,
+  `TareaAgenciaSchema` (`TaskOut` + `source`), `RiesgoAgenteSchema` y
+  `RiesgoPorAgenteSchema`, con la forma de `docs/API_CONTRACT.md` §8.
+- `lib/homelitics-nucleo.ts`: `api.tareasAgencia(filtros)` (valida `status`,
+  `due_before` con zona, `agent_id` uuid y `limit` 1–200 antes de llamar) y
+  `api.riesgoPorAgente(filtros)` (`hours` obligatorio 1–8760 y rango
+  `from`/`to` al revés rechazados aquí).
+- Mocks en `lib/mock/index.ts` con la forma exacta, semilla fechada respecto
+  al arranque (ver `lib/mock/README.md`), incluido `TASK_ID_POR_VENCER`, que
+  vence 3 min después de arrancar. `at-risk-by-agent` reusa el predicado de
+  `at-risk` (extraído a `leadsSinRespuesta`) y da también el CSV propuesto.
+- Interruptores `USE_MOCK_TAREAS_AGENCIA` y `USE_MOCK_RIESGO_POR_AGENTE` en
+  `lib/interruptores.ts` (documentados en `CLAUDE.md` y `.env.example`).
+- 23 casos nuevos en `/api/mocktest` (12 de `GET /tasks`, 11 de `at-risk-by-agent`).
+
+**Hecho (2.26).** `features/seguimiento/components/CampanaRecordatorios.tsx`
+en el header, al lado de `AlertaRiesgo` (los dos van ahora en un contenedor
+con `ml-auto`). `useRecordatoriosVencidos` pide
+`GET /tasks?status=PENDING&due_before=<ahora>&agent_id=<yo>&limit=200` con
+`refetchInterval` de 1 min y `refetchOnWindowFocus`. Conteo en la campanita
+("200+" si llega al tope) y, al abrir, la lista con la nota (o "Recordatorio
+sin nota"), "Venció el …" en hora de Bogotá con el relativo, el origen si no
+es `MANUAL` y enlace a `/leads/{lead_id}`. Con 0, cargando, con error, sin
+`/me` o antes de hidratar (`useHidratado()`) no dibuja nada. Crear,
+posponer o marcar hecha una tarea invalida su key.
+
+Decidido:
+- `source` no entra en `TaskSchema`: el `TaskOut` real tiene siete campos y
+  un campo obligatorio de más rompería `GET /leads/{id}/tasks`. El mock lo
+  guarda pero solo lo devuelve en `GET /tasks`.
+- El interruptor vive en el servidor y lo consultan `lib/homelitics.ts` y el
+  proxy (que responde desde el mock con el código y el `{ detail }` del
+  API). Así basta una variable por endpoint, sin espejo `NEXT_PUBLIC_`. Sin
+  la variable cuenta como `true`: el endpoint no existe.
+- `due_before` se arma en cada lectura y no va en la key: la relectura de
+  cada minuto trae lo que venció sin cambiar de key.
+
+Verificado: `tsc`, `eslint` y `next build` limpios (el build, en una copia
+fuera del repo: había otro `next dev` usando `.next`). Con `USE_MOCKS=true`
+(`.env.local` restaurado a `false` después): todos los casos de
+`/api/mocktest`; el proxy con el interruptor (`/api/homelitics/tasks` 200 y
+422, CSV de `at-risk-by-agent`) sin tocar el API real. En `/tablero`: la
+campanita sale con 3, la lista abre con hora de Bogotá y origen, y **sin
+recargar pasó de 3 a 4 cuando venció `TASK_ID_POR_VENCER`**. Marcarla hecha
+desde el lead la bajó a 3 al instante; vaciando las demás desde sus enlaces
+quedó "1 recordatorio vencido" y luego desapareció. Sin errores en consola
+tras recargar.
+
+Pendiente:
+- **Prueba en vivo** (criterio de 2.26) cuando L1 publique `GET /tasks`:
+  verificar contra `/openapi.json`, moverlo a la sección 3 del contrato,
+  poner `USE_MOCK_TAREAS_AGENCIA=false`, crear un recordatorio a 2 minutos y
+  ver que la campanita lo muestra; después borrar el interruptor. Si `source`
+  no llega, ajustar `TareaAgenciaSchema`.
+- Lo mismo con `at-risk-by-agent` en 2.27.
+- Con L1: si los `SNOOZED` vencidos cuentan como pendientes (hoy el mock no
+  los devuelve con `status=PENDING`).
