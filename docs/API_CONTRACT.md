@@ -682,7 +682,8 @@ dice en pantalla.
 | Salto de etapa ilegal, o lead ya terminal (otro lo movió mientras tanto) | 409 en `POST .../transitions` | Revertir la tarjeta a su columna (deshacer lo optimista), avisar y releer el tablero. |
 | `LOST` sin motivo | 422 en `POST .../transitions`, array de Pydantic | No debería pasar: el formulario exige el motivo antes de enviar. |
 | Rango de fechas al revés en el tablero | 422 en `GET /leads` | Validar el filtro antes de pedir; no llamar al API con `created_from > created_to`. |
-| Token vencido | 401 | Renovar en `lib/session.ts`, reintentar una vez. |
+| Token ausente, vencido o inválido | 401 | La sesión no es válida: volver a `/entrar?siguiente=<ruta actual>`. Sin reintento: renovar la sesión es trabajo de `middleware.ts`. El proxy `/api/homelitics/*` responde este mismo 401 si no hay cookie. (El proxy público sí renueva y reintenta una vez el token de la cuenta de servicio, y si sigue fallando responde 502, no 401.) |
+| `GET /me` con un usuario de Auth que no tiene agente vinculado (`core.agent.auth_user_id`) | 403 en `GET /me` | Cuenta sin agencia: cerrar la sesión (`/entrar/salir`) y mostrar en `/entrar` "Tu cuenta no está habilitada para ninguna agencia". No confundir con el 403 de rol de la fila de abajo. |
 | Reasignar o ver el embudo sin ser `TEAM_ADMIN` | 403 en `POST .../reassign` y `GET /analytics/funnel` | No mostrar la acción a quien no es admin (`useEsAdmin()`); si igual llega el 403, decirlo sin reintentar. |
 | Reasignar a un agente desactivado, a un bot, o al que ya es dueño | 409 en `POST .../reassign` | Releer la lista de agentes y pedir que elija otro. |
 

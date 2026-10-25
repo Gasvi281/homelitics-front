@@ -35,14 +35,21 @@ Dos grupos de rutas, una sola app:
 app/
   (cliente)/   quien busca vivienda. Sin sesión.
   (agente)/    quien gestiona leads. Su layout exige sesión.
-  entrar/      login del agente (Supabase)
-  api/homelitics/[...path]/route.ts   el proxy
+  entrar/      login del agente (Supabase, Server Action) y entrar/salir
+  api/homelitics/[...path]/route.ts   el proxy del agente (token de la cookie)
+  api/publico/[...path]/route.ts      el proxy de cliente (cuenta de servicio,
+                                      lista blanca)
+middleware.ts  exige sesión salvo en las rutas públicas y la renueva
 lib/
-  session.ts             de dónde sale la credencial
+  session.ts             la credencial del agente: la cookie de la petición
+  credencial-servicio.ts la credencial de la cuenta de servicio
+  supabase/servidor.ts   cliente de Supabase atado a las cookies de la petición
+  redireccion.ts         rutaSegura() para el ?siguiente= del login
   homelitics.ts           cliente HTTP para Server Components: pega al API
-                          directo, con credencial de lib/session.ts
+                          directo; `api` con lib/session.ts, `apiPublico`
+                          con lib/credencial-servicio.ts
   homelitics-navegador.ts cliente HTTP para Client Components ("use client"):
-                          pega al proxy, sin credencial
+                          pega a los proxies, sin credencial
   homelitics-nucleo.ts    lo que comparten los dos: fetch+zod+traducción de
                           errores y la lista completa de operaciones del API
   errores.ts              HomeliticsError y su `kind`, sin dependencias
@@ -52,12 +59,12 @@ lib/
 components/
 ```
 
-**El navegador nunca le habla al API de Homelitics.** Le habla al proxy en
-`/api/homelitics/*`, y el proxy agrega la credencial. Consecuencias que hay que
-respetar siempre:
+**El navegador nunca le habla al API de Homelitics.** Le habla a uno de los dos
+proxies, y el proxy agrega la credencial. Consecuencias que hay que respetar
+siempre:
 
-- El token jamás se envía al cliente ni se guarda en `localStorage`. Un token de
-  agente ve **toda la agencia**.
+- El token jamás se envía al cliente ni se guarda en `localStorage`; la sesión
+  vive en una cookie `httpOnly`. Un token de agente ve **toda la agencia**.
 - No hay problema de CORS porque la llamada real sale de servidor a servidor.
 - Un Server Component importa `api` de `lib/homelitics.ts`; un Client Component
   lo importa de `lib/homelitics-navegador.ts`. Se ven exactamente igual (mismas
@@ -69,18 +76,75 @@ respetar siempre:
   navegador — costó una sesión completa de depuración descubrirlo (ver
   `docs/PROGRESO.md`).
 
-### La credencial se resuelve en un solo archivo
+### `api` frente a `apiPublico`, y los dos proxies
 
-`lib/session.ts` expone `getAuthHeader()`. Nada más en el repo puede leer un
-token. Tiene dos etapas y la segunda no debe obligar a tocar ninguna pantalla:
+Hay dos identidades y cada una tiene su cliente y su proxy. Se elige por la
+pantalla, no por la operación:
+
+| Quién | Server Component | Client Component | Proxy | Credencial |
+|---|---|---|---|---|
+| Pantallas de `(agente)` | `api` de `lib/homelitics.ts` | `api` de `lib/homelitics-navegador.ts` | `/api/homelitics/*` | la cookie del agente (`lib/session.ts`) |
+| Pantallas de `(cliente)` (2.1, 2.2, 2.3, 2.5) | `apiPublico` de `lib/homelitics.ts` | `apiPublico` de `lib/homelitics-navegador.ts` | `/api/publico/*` | la cuenta de servicio (`lib/credencial-servicio.ts`) |
+
+- `/api/homelitics/*` reenvía cualquier ruta, con el token del agente que hace
+  la petición. Sin cookie responde `401 {"detail":"Sesión vencida"}` (no
+  redirige: lo llama un `fetch`), y un 401 del API se devuelve tal cual, sin
+  reintento.
+- `/api/publico/*` solo deja pasar una **lista blanca** de método + ruta,
+  anclada y con `{id}` UUID; todo lo demás responde 404 sin tocar la red. Ahí
+  entra solo lo que llama un Client Component de cliente: los Server Components
+  usan `apiPublico` directo contra el API y no lo atraviesan. Nunca abras
+  `/leads` (lista), `/leads/{id}`, `/listings/{id}`, `/me`, `/analytics/*`,
+  `/interactions` ni `/transitions`. Si la cuenta de servicio falla, responde
+  502 y no 401, para no mandar a `/entrar` a quien nunca tuvo sesión.
+- Una pantalla de cliente nunca importa `api`, y una de agente nunca importa
+  `apiPublico`. Al agregar una llamada nueva desde un Client Component de
+  cliente, agrégala también a la lista blanca, con el mismo cuidado.
+
+### La credencial del agente sale de la cookie
+
+`lib/session.ts` expone `getAuthHeader()`, y `lib/credencial-servicio.ts`
+expone `getServiceAuthHeader()`. Nada más en el repo puede leer un token.
 
 | Etapa | Cómo | Estado |
 |---|---|---|
-| 1 | Un agente demo: el servidor pide un token a Supabase con email y contraseña de `.env` y lo cachea | es la actual |
-| 2 | El agente inicia sesión en `/entrar`, `@supabase/ssr` guarda la sesión en cookie y `getAuthHeader()` la lee | pendiente |
+| 1 | Un agente demo: el servidor pide un token a Supabase con email y contraseña de `.env` y lo cachea | retirada; su código vive en `lib/credencial-servicio.ts`, solo para la cuenta de servicio |
+| 2 | El agente inicia sesión en `/entrar`, `@supabase/ssr` guarda la sesión en cookie `httpOnly` y `getAuthHeader()` la lee | **es la actual** (HU-23) |
 
 El API valida el JWT contra el **mismo proyecto de Supabase** que usa el resto
-del sistema, así que la etapa 2 no requiere ningún cambio del lado del backend.
+del sistema, así que la etapa 2 no requirió ningún cambio del lado del backend.
+
+- `middleware.ts` verifica la sesión con `getClaims()` (valida la firma y
+  renueva el token). Nunca uses `getSession()` para decidir si alguien entra:
+  una cookie fabricada a mano pasaría. En `lib/session.ts` sí se usa
+  `getSession()`, porque ahí el token solo se reenvía y el API verifica la
+  firma por su cuenta.
+- La política es **cerrada por defecto**: toda ruta exige sesión salvo
+  `/entrar`, `/propiedades/*`, `/citas/*`, `/api/publico/*` y
+  `/api/homelitics/*`. Una ruta nueva de agente queda protegida sin hacer
+  nada; una de cliente hay que agregarla a `RUTAS_PUBLICAS`.
+- El `?siguiente=` del login pasa siempre por `rutaSegura()`
+  (`lib/redireccion.ts`): nada que no empiece por `/`, ni `//` ni `/\`.
+- `GET /me` con 403 (usuario de Auth sin agente) → `/entrar/salir`, que cierra
+  la sesión y muestra "Tu cuenta no está habilitada para ninguna agencia".
+
+### Nada que dependa del usuario en una variable de módulo
+
+Un módulo lo comparten **todas** las peticiones del servidor. Un `let` de
+módulo con un token, un agente o un rol le daría a un agente el token de otro
+y le mostraría otra agencia. Para no repetir trabajo dentro de una misma
+petición, usa `cache()` de React (`lib/session.ts`, `lib/agente-actual.ts`):
+memoriza solo durante un render.
+
+La única excepción es `lib/credencial-servicio.ts`: una sola identidad
+compartida a propósito, que no depende de quién pide. `lib/mock/` también
+tiene estado de módulo, pero es estado de desarrollo. Para comprobarlo:
+
+```bash
+grep -rn "^let \|^var " lib/ app/
+```
+
+Cualquier resultado fuera de esos dos lugares es un error.
 
 Nunca uses el header `X-Dev-Agent-Id`: solo funciona cuando el API corre contra
 una base de datos local, y la app se niega a arrancar con ese modo si no es así.
@@ -110,7 +174,9 @@ Cliente: ficha y selector de horarios (2.1), confirmar la cita (2.2), mover o
 cancelar (2.3) y encuesta post-visita (2.5). Agente: historial del lead con
 etapa y lead perdido (2.4, HU-09), tablero con filtros y drag & drop (HU-06),
 reasignar (HU-08) y embudo con CSV/PDF (HU-17, solo `TEAM_ADMIN`). Mocks
-completos en `lib/mock/`. Sigue pendiente la etapa 2 de `lib/session.ts`.
+completos en `lib/mock/`. HU-23 (login del agente, etapa 2 de
+`lib/session.ts`) hecha en las fases 1 a 8 de `PLAN.md`; las pruebas manuales
+de la fase 9 están en `docs/PRUEBAS_HU23.md`.
 
 ## Cómo trabajar aquí
 
@@ -137,16 +203,26 @@ CSV y deja el PDF al front; se cargan con `import()` al hacer clic en
 HOMELITICS_API_URL=https://homelitics-api.onrender.com
 NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key, es público por diseño>
-DEMO_AGENT_EMAIL=<agente demo, etapa 1>
-DEMO_AGENT_PASSWORD=<contraseña compartida, etapa 1>
+SERVICE_AGENT_EMAIL=<cuenta de servicio, un AGENT>
+SERVICE_AGENT_PASSWORD=<contraseña de la cuenta de servicio>
 USE_MOCKS=true
 NEXT_PUBLIC_USE_MOCKS=true
+MOCK_AGENT_ROLE=TEAM_ADMIN
 USE_MOCK_TAREAS_AGENCIA=true
 USE_MOCK_RIESGO_POR_AGENTE=true
 ```
 
+`SERVICE_AGENT_*` reemplazan a las antiguas `DEMO_AGENT_*`. Son la cuenta de
+servicio de las pantallas de cliente, que no tienen sesión: **solo** las leen
+`lib/credencial-servicio.ts`, y a través de él `apiPublico` y
+`/api/publico/*`. Tiene que ser un `AGENT`, no un `TEAM_ADMIN`. Los agentes no
+usan ninguna variable de entorno: entran con su cuenta en `/entrar`.
+
 `USE_MOCKS=true` hace que `lib/homelitics.ts` devuelva datos de `lib/mock/` sin
-tocar la red. Es lo que permite maquetar sin credenciales.
+tocar la red. Es lo que permite maquetar sin credenciales: el middleware no
+pide sesión y `/entrar` salta al tablero. `MOCK_AGENT_ROLE` (`AGENT` |
+`TEAM_ADMIN`, por defecto `TEAM_ADMIN`) fija el rol del agente del mock; solo
+cuenta con mocks.
 
 `NEXT_PUBLIC_USE_MOCKS` es el mismo valor, repetido: Next solo mete al bundle
 del navegador las variables con prefijo `NEXT_PUBLIC_`, y

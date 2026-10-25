@@ -271,6 +271,33 @@ construye contra `lib/mock/`.
    - [x] Filtro por agente en `/tablero` y `/embudo`: la URL con `?agente=`
      filtra y recargar no lo pierde. Falta ver el nombre en el CSV y el PDF.
 
+Los bloqueos 8 a 15 están en `docs/SPRINT_E3_LINEA2.md`. Los dos siguientes
+son riesgos **aceptados** de HU-23 (`PLAN.md`, fase 6): no bloquean ninguna
+pantalla, pero quedan anotados porque la solución de fondo depende de L1.
+
+16. **La cuenta de servicio de las pantallas de cliente pertenece a una sola
+    agencia.** Desde HU-23 las pantallas 2.1, 2.2, 2.3 y 2.5 (que no tienen
+    sesión) llaman al API con una cuenta de servicio `AGENT`
+    (`SERVICE_AGENT_*`, `lib/credencial-servicio.ts`). Un cliente que abra el
+    enlace de una propiedad, un lead o una cita de **otra** agencia ve 404.
+    No es nuevo: con el agente demo de la etapa 1 pasaba igual. Mientras
+    tanto, los enlaces que se repartan tienen que ser de la agencia de esa
+    cuenta.
+17. **El enlace es el control de acceso.** Quien tenga el UUID de un lead,
+    una propiedad o una cita ve lo que la página renderiza con él
+    (dirección, horario, nombre del agente), igual que antes de HU-23. Lo
+    que ya no puede es leer el `LeadOut` crudo: `/api/publico/*` tiene lista
+    blanca y no abre `GET /leads/{id}` ni `GET /listings/{id}` (esas dos
+    solo las piden los Server Components). Con el UUID de una cita **sí**
+    puede leerla, moverla o cancelarla por `/api/publico/appointments/{id}`,
+    como hoy.
+
+    Solución de fondo para los dos (L1): endpoints públicos en el API que
+    reciban un token firmado en el enlace (atado a un lead o una cita y con
+    vencimiento), en vez de una credencial de agente. Con eso la cuenta de
+    servicio y `/api/publico/*` desaparecen. Queda como deuda técnica, no de
+    este sprint.
+
 ### Nota sobre 2.1: qué tan fiel es la grilla al prototipo
 
 El prototipo visual muestra una grilla con las casillas ocupadas en gris y

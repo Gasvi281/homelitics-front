@@ -355,17 +355,17 @@ igual que antes; `curl /api/publico/leads`, `curl /api/publico/me` y
 
 ## Fase 8 — Limpieza y documentación
 
-- [ ] `.env.example`, README y `CLAUDE.md`: `DEMO_AGENT_*` → `SERVICE_AGENT_*`,
+- [x] `.env.example`, README y `CLAUDE.md`: `DEMO_AGENT_*` → `SERVICE_AGENT_*`,
       con la explicación de que solo la usa `/api/publico`.
-- [ ] `CLAUDE.md`: la tabla de etapas marca la 2 como actual; agregar la regla
+- [x] `CLAUDE.md`: la tabla de etapas marca la 2 como actual; agregar la regla
       "nada que dependa del usuario en variables de módulo"; documentar
       `api` frente a `apiPublico` y los dos proxies.
-- [ ] `docs/API_CONTRACT.md` §4: cambiar la fila "Token vencido | 401 | Renovar
+- [x] `docs/API_CONTRACT.md` §4: cambiar la fila "Token vencido | 401 | Renovar
       y reintentar una vez" por "401 → la sesión no es válida: volver a
       `/entrar`". Agregar el 403 de `/me` como "cuenta sin agencia".
-- [ ] `docs/SPRINT_LINEA2.md`: los dos riesgos de la fase 6 en "Bloqueos".
-- [ ] `docs/PROGRESO.md`: entrada final.
-- [ ] Comprobación: `grep -rn "^let \|^var " lib/ app/` en archivos
+- [x] `docs/SPRINT_LINEA2.md`: los dos riesgos de la fase 6 en "Bloqueos".
+- [x] `docs/PROGRESO.md`: entrada final.
+- [x] Comprobación: `grep -rn "^let \|^var " lib/ app/` en archivos
       `server-only`; el único resultado permitido es `lib/credencial-servicio.ts`
       (y `lib/mock/`, que es estado de desarrollo).
 

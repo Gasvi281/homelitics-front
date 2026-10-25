@@ -2223,3 +2223,47 @@ Probado (servidor lanzado por un script de Node que vacía
 Pendiente:
 - Fase 8 (documentación y `DEMO_AGENT_*` → `SERVICE_AGENT_*` en README y
   `CLAUDE.md`).
+
+## 2026-10-25 — HU-23, fase 8: limpieza y documentación
+
+Hecho:
+- README: `DEMO_AGENT_*` → `SERVICE_AGENT_*` (solo la usan `apiPublico` y
+  `/api/publico/*`), `MOCK_AGENT_ROLE`, login en `/entrar`, cómo probar la
+  cuenta de servicio (`curl /api/publico/health`) y la del agente (`/me` en
+  el navegador con sesión, porque con `curl` da 401), bloqueo 5 con la
+  cuenta de servicio, mapa de arquitectura con el middleware y los dos
+  proxies, y la regla de las variables de módulo.
+- `CLAUDE.md`: árbol de archivos actualizado; tabla de etapas con la 2 como
+  actual y la 1 retirada (su código vive en `lib/credencial-servicio.ts`);
+  sección "`api` frente a `apiPublico`, y los dos proxies"; sección "Nada
+  que dependa del usuario en una variable de módulo", con el `grep` de
+  comprobación; variables de entorno y "Estado actual".
+- `docs/API_CONTRACT.md` §4: el 401 ya no es "renovar y reintentar" sino
+  "la sesión no es válida: volver a `/entrar`"; fila nueva para el 403 de
+  `GET /me` (cuenta sin agencia), distinta del 403 de rol.
+- `docs/SPRINT_LINEA2.md`, "Bloqueos": 16 (la cuenta de servicio es de una
+  sola agencia) y 17 (el enlace es el control de acceso), como riesgos
+  aceptados, con la solución de fondo para L1 (endpoints públicos con token
+  firmado en el enlace). Numerados después del 15 de
+  `docs/SPRINT_E3_LINEA2.md`.
+- `docs/PRUEBAS_HU23.md`: los 13 casos de la fase 9 con columna de
+  resultado.
+
+Comprobación de variables de módulo (`grep -rn "^let \|^var " lib/ app/`):
+`lib/credencial-servicio.ts:22` (`let cached`) y siete en `lib/mock/index.ts`.
+Nada más. Los `let` con sangría son locales de función. Los `Set` de módulo
+de `lib/umbral-navegador.ts` y `features/plantillas/almacen.ts` son del
+navegador (oyentes), no del servidor.
+
+Probado (`USE_MOCKS=false`, puerto 3001, `curl` sin cookie):
+- Caso 12: `/api/publico/leads`, `/leads/<uuid real>`, `/listings/<uuid
+  real>`, `/me` y `/analytics/north-star` → 404. Control: `/health` → 200.
+- Caso 13: `/api/homelitics/me` → 401 `{"detail":"Sesión vencida"}`.
+
+Pendiente:
+- Casos 1 a 11 de `docs/PRUEBAS_HU23.md`, con navegador y las cuentas de
+  la fase 0 (las cuatro casillas de Supabase y cuentas siguen abiertas).
+- Quedan menciones al "agente demo de la etapa 1" fuera de §4 en
+  `docs/API_CONTRACT.md` (bloqueo 5, `/analytics/funnel`) y el bloqueo 14
+  de `docs/SPRINT_E3_LINEA2.md` ("sigue sin login real"), que ya no es
+  cierto. No se tocaron: no estaban en el alcance de esta fase.
