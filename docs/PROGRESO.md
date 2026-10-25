@@ -2078,3 +2078,38 @@ Pendiente:
 - Fase 8: README, `CLAUDE.md` y `docs/API_CONTRACT.md` siguen nombrando
   `DEMO_AGENT_*` y el reintento tras 401.
 - No se probó el caso "con sesión" de `/api/homelitics` (no hay login todavía).
+
+## 2026-10-25 — HU-23, fase 3: pantalla `/entrar`
+
+Hecho:
+- `app/entrar/acciones.ts` (`"use server"`): `entrar()` valida con zod
+  (correo y contraseña no vacíos; la contraseña sin `trim`), llama
+  `signInWithPassword` con `crearClienteServidor()` y redirige con
+  `rutaSegura(siguiente)`. `salir()`: `signOut()` + `redirect("/entrar")`.
+- `components/FormularioEntrar.tsx`: `useActionState`, botón "Entrar al
+  panel" ("Entrando…" y deshabilitado mientras envía), `siguiente` como campo
+  oculto. Al montar, `fetch("/api/publico/health")` sin esperar (AC5).
+- `app/entrar/page.tsx` reemplaza la provisional: tarjeta centrada, aviso de
+  `?error=sin-agencia` con `Aviso` (AC4) y el texto de `PLAN.md` en lugar de
+  "Crear cuenta" / "Olvidé mi contraseña".
+
+Decidido:
+- Un solo mensaje, "El correo o la contraseña no coinciden.", para todo
+  fallo: validación, error de Supabase o excepción de red. No se distingue
+  un Supabase caído para no abrir una segunda vía de diferenciar respuestas.
+- `redirect()` va fuera del `try`: lanza a propósito y el `catch` se lo comería.
+- El estado devuelve el correo intentado para no hacerlo escribir otra vez;
+  la contraseña se borra.
+
+Probado (servidor `homelitics-web-sin-mocks`):
+- Sin sesión, `/leads/abc?x=1` → `/entrar?siguiente=%2Fleads%2Fabc%3Fx%3D1`.
+- `?error=sin-agencia` muestra el aviso.
+- Correo inexistente → mensaje genérico, correo conservado.
+- `GET /api/publico/health` → 200 al cargar la página.
+- `type-check` y `lint` limpios.
+
+Pendiente (pruebas manuales más adelante, con las dos cuentas de prueba):
+- Login correcto con el `TEAM_ADMIN` y con el `AGENT`.
+- Contraseña incorrecta con un correo real: debe dar el mismo mensaje.
+- `/entrar?siguiente=//otro.sitio` (y `https://otro.sitio`): debe ir al tablero.
+- `salir()` todavía no tiene botón: lo pone el layout de `(agente)` en la fase 4.
