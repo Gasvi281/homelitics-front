@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HomeliticsError, type ErrorKind } from "@/lib/errores";
 import { mockForzado } from "@/lib/interruptores";
-import { getAuthHeader, invalidateToken } from "@/lib/session";
+import { getAuthHeader } from "@/lib/session";
 
 /**
  * Proxy hacia el API de Homelitics.
@@ -51,21 +51,23 @@ async function reenviar(req: NextRequest, path: string[]) {
   const destino = `${BASE}${ruta}`;
   const cuerpo = ["GET", "HEAD"].includes(req.method) ? undefined : await req.text();
 
-  const enviar = async () =>
-    fetch(destino, {
-      method: req.method,
-      headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
-      body: cuerpo,
-      cache: "no-store",
-    });
-
-  let res = await enviar();
-
-  // Un 401 casi siempre es un token vencido: se renueva y se reintenta una vez.
-  if (res.status === 401) {
-    invalidateToken();
-    res = await enviar();
+  // Sin cookie de sesión (o vencida sin renovar): 401 limpio, no un 500. El
+  // navegador lo traduce a `no_autenticado` y manda a /entrar.
+  let auth: Record<string, string>;
+  try {
+    auth = await getAuthHeader();
+  } catch {
+    return NextResponse.json({ detail: "Sesión vencida" }, { status: 401 });
   }
+
+  // Sin reintento tras un 401 del API: renovar la sesión es trabajo del
+  // middleware, y ese 401 se devuelve tal cual.
+  const res = await fetch(destino, {
+    method: req.method,
+    headers: { "Content-Type": "application/json", ...auth },
+    body: cuerpo,
+    cache: "no-store",
+  });
 
   const texto = await res.text();
   const headers: Record<string, string> = {

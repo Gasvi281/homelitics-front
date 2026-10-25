@@ -1,4 +1,4 @@
-import { api, HomeliticsError } from "@/lib/homelitics";
+import { apiPublico, HomeliticsError } from "@/lib/homelitics";
 import { Aviso } from "@/components/Aviso";
 import { FichaPropiedad } from "@/components/FichaPropiedad";
 import { GrillaHorarios } from "@/components/GrillaHorarios";
@@ -40,7 +40,7 @@ export default async function AgendarPage({
 
   let listing, lead;
   try {
-    [listing, lead] = await Promise.all([api.listing(listingId), api.lead(leadId)]);
+    [listing, lead] = await Promise.all([apiPublico.listing(listingId), apiPublico.lead(leadId)]);
   } catch (e) {
     return (
       <Contenedor>

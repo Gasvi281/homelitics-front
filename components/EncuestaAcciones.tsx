@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { api, HomeliticsError } from "@/lib/homelitics-navegador";
+import { apiPublico, HomeliticsError } from "@/lib/homelitics-navegador";
 import type { Objection } from "@/lib/schemas";
 
 const ETIQUETA_OBJECION: Record<Objection, string> = {
@@ -47,7 +47,7 @@ export function EncuestaAcciones({ appointmentId }: { appointmentId: string }) {
     if (interesScore === null) return;
     setEstado({ tipo: "enviando" });
     try {
-      await api.enviarEncuesta(appointmentId, {
+      await apiPublico.enviarEncuesta(appointmentId, {
         submitted_by: "CLIENT",
         interest_score: interesScore,
         objection: objecion ?? undefined,

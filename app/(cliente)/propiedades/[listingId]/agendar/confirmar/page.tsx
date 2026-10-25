@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { api, HomeliticsError } from "@/lib/homelitics";
+import { apiPublico, HomeliticsError } from "@/lib/homelitics";
 import { Aviso } from "@/components/Aviso";
 import { TarjetaCita } from "@/components/TarjetaCita";
 import { ConfirmarCitaAcciones } from "@/components/ConfirmarCitaAcciones";
@@ -56,7 +56,7 @@ export default async function ConfirmarPage({
 
   let listing, lead;
   try {
-    [listing, lead] = await Promise.all([api.listing(listingId), api.lead(leadId)]);
+    [listing, lead] = await Promise.all([apiPublico.listing(listingId), apiPublico.lead(leadId)]);
   } catch (e) {
     return (
       <Contenedor>

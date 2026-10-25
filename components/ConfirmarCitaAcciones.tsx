@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, HomeliticsError } from "@/lib/homelitics-navegador";
+import { apiPublico, HomeliticsError } from "@/lib/homelitics-navegador";
 import { TarjetaCita } from "@/components/TarjetaCita";
 import type { Appointment } from "@/lib/schemas";
 
@@ -74,7 +74,7 @@ export function ConfirmarCitaAcciones({
 
     setEstado({ tipo: "enviando" });
     try {
-      const cita = await api.crearCita(leadId, { scheduled_at: horario, duration_min: 30 });
+      const cita = await apiPublico.crearCita(leadId, { scheduled_at: horario, duration_min: 30 });
       setEstado({ tipo: "exito", cita });
     } catch (e) {
       if (e instanceof HomeliticsError && e.kind === "conflicto") {

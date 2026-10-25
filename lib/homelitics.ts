@@ -1,7 +1,8 @@
 /**
  * Cliente HTTP del API de Homelitics, mitad SERVIDOR: Server Components,
  * route handlers y demás código que corre en Node. Pega al API directo y
- * agrega la credencial de lib/session.ts.
+ * agrega la credencial: `api` la de lib/session.ts (el agente con sesión),
+ * `apiPublico` la de lib/credencial-servicio.ts (las pantallas de cliente).
  *
  * Para Client Components ("use client") usa lib/homelitics-navegador.ts en
  * su lugar, NUNCA este archivo: importa lib/session.ts (marcado
@@ -26,15 +27,35 @@ function requireEnv(name: string): string {
   return v;
 }
 
+const usarMocks = process.env.USE_MOCKS === "true";
+const urlPara = (path: string) => `${requireEnv("HOMELITICS_API_URL")}${path}`;
+
 const transporte = crearPedir({
-  usarMocks: process.env.USE_MOCKS === "true",
+  usarMocks,
   // Los endpoints propuestos que aún no existen (USE_MOCK_TAREAS_AGENCIA, …).
   mockPara: mockForzado,
-  urlPara: (path) => `${requireEnv("HOMELITICS_API_URL")}${path}`,
+  urlPara,
   credenciales: async () => {
     const { getAuthHeader } = await import("./session");
     return getAuthHeader();
   },
 });
 
+/** Con la sesión del agente que hace la petición (cookie). Pantallas de (agente). */
 export const api = crearApi(transporte);
+
+const transportePublico = crearPedir({
+  usarMocks,
+  mockPara: mockForzado,
+  urlPara,
+  credenciales: async () => {
+    const { getServiceAuthHeader } = await import("./credencial-servicio");
+    return getServiceAuthHeader();
+  },
+});
+
+/**
+ * Con la cuenta de servicio (lib/credencial-servicio.ts). Solo para las
+ * pantallas de (cliente), que no tienen sesión. Ver PLAN.md, fase 6.
+ */
+export const apiPublico = crearApi(transportePublico);

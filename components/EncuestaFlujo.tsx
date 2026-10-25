@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { api, HomeliticsError } from "@/lib/homelitics-navegador";
+import { apiPublico, HomeliticsError } from "@/lib/homelitics-navegador";
 import type { Appointment, AppointmentStatus } from "@/lib/schemas";
 import { Aviso } from "@/components/Aviso";
 import { EncuestaAcciones } from "@/components/EncuestaAcciones";
@@ -37,7 +37,7 @@ type Estado =
  * `preguntar_asistencia`, sin tocar nada más de la pantalla.
  */
 async function completarVisitaProvisional(cita: Appointment): Promise<Appointment> {
-  return api.actualizarCita(cita.id, { status: "COMPLETED" });
+  return apiPublico.actualizarCita(cita.id, { status: "COMPLETED" });
 }
 
 /** Únicos estados que se pueden dar por realizados: la visita estaba en pie. */
@@ -86,7 +86,7 @@ export function EncuestaFlujo({
     if (citaInicial.status !== "COMPLETED") return;
     let cancelado = false;
 
-    api.feedbackDeCita(appointmentId).then(
+    apiPublico.feedbackDeCita(appointmentId).then(
       (previo) => {
         if (cancelado) return;
         setEstado(

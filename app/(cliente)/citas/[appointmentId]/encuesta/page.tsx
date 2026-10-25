@@ -1,4 +1,4 @@
-import { api, HomeliticsError } from "@/lib/homelitics";
+import { apiPublico, HomeliticsError } from "@/lib/homelitics";
 import type { Appointment } from "@/lib/schemas";
 import { fechaHoraLarga } from "@/lib/format";
 import { Aviso } from "@/components/Aviso";
@@ -24,7 +24,7 @@ export default async function EncuestaPage({
 
   let cita: Appointment;
   try {
-    cita = await api.cita(appointmentId);
+    cita = await apiPublico.cita(appointmentId);
   } catch (e) {
     return (
       <Contenedor>

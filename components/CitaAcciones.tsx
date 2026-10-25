@@ -2,7 +2,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, HomeliticsError } from "@/lib/homelitics-navegador";
+import { apiPublico, HomeliticsError } from "@/lib/homelitics-navegador";
 import { TERMINAL_APPOINTMENT_STATUS, type Appointment, type Channel } from "@/lib/schemas";
 import { Aviso } from "@/components/Aviso";
 import { TarjetaCita } from "@/components/TarjetaCita";
@@ -49,7 +49,7 @@ export function CitaAcciones({
   const queryClient = useQueryClient();
   const { data: cita } = useQuery({
     queryKey: ["cita", appointmentId],
-    queryFn: () => api.cita(appointmentId),
+    queryFn: () => apiPublico.cita(appointmentId),
     initialData: citaInicial,
     refetchInterval: 5000,
   });
@@ -81,7 +81,7 @@ export function CitaAcciones({
     setModo({ tipo: "cancelando" });
     setError(null);
     try {
-      const actualizada = await api.actualizarCita(appointmentId, { status: "CANCELLED" });
+      const actualizada = await apiPublico.actualizarCita(appointmentId, { status: "CANCELLED" });
       guardarEnCache(actualizada);
       setModo({ tipo: "normal" });
     } catch (e) {
@@ -94,7 +94,7 @@ export function CitaAcciones({
     setModo({ tipo: "guardando_movimiento" });
     setError(null);
     try {
-      const actualizada = await api.actualizarCita(appointmentId, { scheduled_at: iso });
+      const actualizada = await apiPublico.actualizarCita(appointmentId, { scheduled_at: iso });
       guardarEnCache(actualizada);
       setModo({ tipo: "normal" });
     } catch (e) {

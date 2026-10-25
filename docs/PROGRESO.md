@@ -2003,3 +2003,78 @@ Pendiente:
 - Fase 2: `lib/session.ts` y el proxy. Hasta entonces `/api/homelitics/*`
   sigue usando el agente demo, y sin login real no se puede probar el caso
   "con sesión".
+
+## 2026-10-25 — HU-23, fases 6 y 2: cuenta de servicio para cliente y sesión por cookie
+
+Las dos en la misma rama: sin la 6, la 2 rompe las pantallas de cliente.
+
+Hecho (fase 6):
+- `lib/credencial-servicio.ts` (`server-only`): el código de la etapa 1 de
+  `lib/session.ts`, con `SERVICE_AGENT_EMAIL`/`SERVICE_AGENT_PASSWORD`.
+  Exporta `getServiceAuthHeader()` e `invalidarTokenServicio()`. Es la única
+  variable de módulo permitida (una sola identidad compartida a propósito);
+  el comentario del archivo lo explica.
+- `apiPublico` en `lib/homelitics.ts` (API directo + credencial de servicio)
+  y en `lib/homelitics-navegador.ts` (por `/api/publico`). Mismo `crearPedir`,
+  `lib/homelitics-nucleo.ts` sin cambios.
+- `app/api/publico/[...path]/route.ts`: lista blanca de método + ruta con
+  regex ancladas e ids UUID: GET `/health`, GET `/agents/{id}/slots`, POST
+  `/leads/{id}/appointments`, GET/PATCH `/appointments/{id}`, GET/POST
+  `/appointments/{id}/feedback`. Todo lo demás (incluido DELETE) → 404 sin
+  tocar la red. Reintento tras 401 con el token de servicio renovado.
+- Las 4 páginas de `app/(cliente)/` y `GrillaHorarios`, `SelectorNuevoHorario`,
+  `ConfirmarCitaAcciones`, `CitaAcciones`, `EncuestaFlujo`, `EncuestaAcciones`
+  usan `apiPublico` (comprobado que ninguno lo importa `(agente)`).
+
+Hecho (fase 2):
+- `lib/session.ts` reescrito como en `PLAN.md`: `cache()` de React +
+  `crearClienteServidor()` + `getSession()`. Sin `cached`, `SKEW_MS`,
+  `invalidateToken` ni password grant.
+- Proxy `/api/homelitics`: sin reintento; si `getAuthHeader()` lanza →
+  `401 {"detail":"Sesión vencida"}`. Un 401 del API pasa tal cual.
+- `app/providers.tsx`: `onError` global en `QueryCache` y `MutationCache`
+  (la v5 no lo acepta en `defaultOptions`): `no_autenticado` →
+  `/entrar?siguiente=<ruta+query>`.
+- `.env.example` y `.env.local`: `DEMO_AGENT_*` → `SERVICE_AGENT_*` (en
+  `.env.local` solo se renombraron las claves).
+
+Probado con `USE_MOCKS=false` y sin cookies (servidor `homelitics-web-sin-mocks`):
+- `curl`: `/api/publico/me`, `/leads`, `/leads/<uuid real>`,
+  `/listings/<uuid real>`, `/analytics/north-star`, `/appointments/no-es-uuid`,
+  `/appointments/<uuid>/x` y DELETE `/appointments/<uuid>` → 404;
+  `/api/publico/health` → 200; slots y GET de una cita real → 200;
+  `/api/homelitics/me` → 401 `{"detail":"Sesión vencida"}`.
+- En el navegador, sin sesión: 2.1 (`/propiedades/6c645c15-…/agendar?leadId=5311d3b9-…`)
+  pinta la ficha y pide los slots por `/api/publico`; 2.3 (`/citas/ee702b0c-…`)
+  pinta la cita con "Mover" y "Cancelar la visita"; 2.5
+  (`/citas/b1100033-…/encuesta`, ya `COMPLETED`) muestra la encuesta tras un
+  GET de feedback 200 por `/api/publico`. No se envió nada.
+- `type-check` y `lint` limpios. Búsqueda de `let`/`var` de módulo en los
+  archivos `server-only` (`lib/agente-actual.ts`, `lib/credencial-servicio.ts`,
+  `lib/interruptores.ts`, `lib/session.ts`, `lib/supabase/servidor.ts`):
+  solo `cached` en `lib/credencial-servicio.ts`.
+
+Decidido:
+- El proxy público responde **502** (no 401) si la cuenta de servicio no
+  sirve (falla el password grant o el API sigue en 401 tras renovar). Un 401
+  se traduciría a `no_autenticado` y el `onError` global mandaría a `/entrar`
+  a un cliente que nunca tuvo sesión.
+- El proxy público no consulta `mockForzado`: ninguna ruta de la lista es un
+  endpoint propuesto.
+
+Hallazgos:
+- **La cuenta de `.env.local` es `TEAM_ADMIN`** (`GET /me`), y `PLAN.md`
+  (fase 0) pide un `AGENT` para la cuenta de servicio. Hay que cambiarla
+  antes de llevar esto a `main`.
+- Los ids de prueba de septiembre (`8d14666e-…`, `423190e8-…`,
+  `afb8d316-…`) ya no existen en el API: la base se recargó. Los de arriba
+  son los actuales.
+
+Pendiente:
+- `/entrar` sigue siendo la página provisional (fase 3): la redirección del
+  `onError` cae ahí.
+- Llamadas directas sin React Query del lado agente (`HistorialLead`,
+  `ExportarEmbudo`): no ven el `onError` global.
+- Fase 8: README, `CLAUDE.md` y `docs/API_CONTRACT.md` siguen nombrando
+  `DEMO_AGENT_*` y el reintento tras 401.
+- No se probó el caso "con sesión" de `/api/homelitics` (no hay login todavía).

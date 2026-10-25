@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, HomeliticsError } from "@/lib/homelitics-navegador";
+import { apiPublico, HomeliticsError } from "@/lib/homelitics-navegador";
 import { agruparSlotsPorDia, diaLocal, etiquetaDia, horaLocal, semanaHabil } from "@/lib/format";
 
 type Estado =
@@ -44,7 +44,7 @@ export function SelectorNuevoHorario({
     setEstado({ tipo: "cargando" });
     setSeleccionado(null);
 
-    api
+    apiPublico
       .slots(agentId, semana.desde, semana.hasta)
       .then((resp) => {
         if (!cancelado) setEstado({ tipo: "listo", slots: resp.slots });

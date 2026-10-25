@@ -1,4 +1,4 @@
-import { api, HomeliticsError } from "@/lib/homelitics";
+import { apiPublico, HomeliticsError } from "@/lib/homelitics";
 import { Aviso } from "@/components/Aviso";
 import { CitaAcciones } from "@/components/CitaAcciones";
 
@@ -27,9 +27,9 @@ export default async function CitaPage({
 
   let cita, lead, listing;
   try {
-    cita = await api.cita(appointmentId);
-    lead = await api.lead(cita.lead_id);
-    listing = await api.listing(lead.listing_id);
+    cita = await apiPublico.cita(appointmentId);
+    lead = await apiPublico.lead(cita.lead_id);
+    listing = await apiPublico.listing(lead.listing_id);
   } catch (e) {
     return (
       <Contenedor>
