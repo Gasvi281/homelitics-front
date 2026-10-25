@@ -1930,3 +1930,76 @@ Pendiente:
 - Lo mismo con `at-risk-by-agent` en 2.27.
 - Con L1: si los `SNOOZED` vencidos cuentan como pendientes (hoy el mock no
   los devuelve con `status=PENDING`).
+
+## 2026-10-25 — HU-23, fase 0: reconocimiento para el login del agente
+
+Sin cambios de código. Resultado completo en `PLAN.md`, sección
+"Reconocimiento (fase 0)".
+
+Hecho:
+- URLs reales: cliente `/propiedades/{id}/agendar[/confirmar]` y
+  `/citas/{id}[/encuesta]`; agente `/tablero`, `/leads/{id}`, `/embudo`,
+  `/riesgo`. Fuera de los grupos: `/`, `/dev/explorar` y `/api/mocktest`, que
+  no tienen guarda y deben quedar protegidas por el middleware.
+- Inventario de `api.` en `(cliente)`: los Server Components llaman GET
+  `/listings/{id}`, `/leads/{id}` y `/appointments/{id}` directo al API; los
+  Client Components usan slots, POST de cita, GET/PATCH de cita y GET/POST
+  de feedback por el proxy. A la lista blanca de la fase 6 no le falta nada.
+- `QueryClient` del navegador en `app/providers.tsx:24`; las páginas de
+  agente crean otros por petición en el servidor, solo para precargar.
+- Reasignar (`features/reasignar/`, `EtapaLead.tsx:64`), `/embudo` y
+  `/riesgo` ya existen y ya se esconden según `/me`.
+
+Decidido / propuesto:
+- GET `/listings/{id}` y GET `/leads/{id}` salen de la lista blanca del
+  proxy público (aplicado en `PLAN.md`, fase 6): solo los usan Server
+  Components, que no pasan por el proxy. Ya no se lee el `LeadOut` crudo por
+  UUID desde el navegador; los riesgos aceptados y los casos de `curl` de
+  las fases 6 y 9 quedaron ajustados.
+- La fase 4 reutiliza `lib/agente-actual.ts` y
+  `features/agentes/AgenteActual.tsx` en vez de crear archivos nuevos.
+- En la fase 2, el `onError` global va en `QueryCache`/`MutationCache`
+  (React Query v5); `HistorialLead.tsx:68` y `ExportarEmbudo.tsx:39` llaman
+  sin React Query y necesitan su propio manejo.
+
+Pendiente:
+- Las cuatro casillas de Supabase y cuentas de la fase 0 (registro
+  apagado, `auth_user_id`, cuentas `TEAM_ADMIN`/`AGENT`, cuenta de servicio).
+- Decidir si `/embudo` y `/riesgo` pasan de `Aviso` a `notFound()` (fase 5).
+
+## 2026-10-25 — HU-23, fase 1: infraestructura de sesión
+
+Hecho:
+- `middleware.ts`: crea un `createServerClient` sobre las cookies de la
+  petición (patrón `updateSession`), verifica con `getClaims()` y aplica una
+  política cerrada. Públicas: `/entrar`, `/propiedades`, `/citas`,
+  `/api/publico` y `/api/homelitics` (prefijo completo: `/citasx` no pasa).
+  Sin sesión → `302 /entrar?siguiente=<ruta+query>`; con sesión en `/entrar`
+  → `rutaSegura(siguiente)`. Con `USE_MOCKS=true` deja pasar todo.
+- `lib/redireccion.ts`: `RUTA_TABLERO` y `rutaSegura()`.
+- `lib/supabase/servidor.ts`: `crearClienteServidor()`, todavía sin uso (fase 2).
+- `app/entrar/page.tsx` provisional: "Login en construcción".
+- `.claude/launch.json`: configuración `homelitics-web-sin-mocks` (puerto
+  3001, `USE_MOCKS=false` sin tocar `.env.local`).
+- Probado con `USE_MOCKS=false`: `/leads/{id}?x=1`, `/tablero`, `/`,
+  `/dev/explorar`, `/embudo`, `/riesgo` y `/api/mocktest` → `/entrar?siguiente=...`;
+  `/citas/{id}`, `/citas/{id}/encuesta`, `/propiedades/{id}/agendar` y
+  `/api/homelitics/health` → 200. Una cookie `sb-*-auth-token` fabricada
+  también redirige. Con `USE_MOCKS=true`, `/tablero` y `/embudo` → 200.
+  `type-check` y `lint` limpios.
+
+Decidido:
+- 302 explícito y no el 307 por defecto de `NextResponse.redirect`: un 307
+  reenviaría un POST (Server Action) a `/entrar`.
+- La redirección "con sesión en `/entrar`" compara la ruta exacta, para no
+  atrapar `/entrar/salir` (fase 4).
+- `rutaSegura()` rechaza además caracteres de control (el navegador borra el
+  tab y `/\t/otro.sitio` queda como `//otro.sitio`) y comprueba al final que
+  la URL resuelta no cambie de origen.
+- Las cookies que Supabase renueve se copian también a la respuesta de
+  redirección.
+
+Pendiente:
+- Fase 2: `lib/session.ts` y el proxy. Hasta entonces `/api/homelitics/*`
+  sigue usando el agente demo, y sin login real no se puede probar el caso
+  "con sesión".

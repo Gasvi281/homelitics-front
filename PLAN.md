@@ -300,36 +300,44 @@ Igual al proxy actual, con dos diferencias:
 1. Usa `getServiceAuthHeader()`.
 2. **Lista blanca** de método + ruta. Todo lo demás → `404`.
 
-Lista inicial (sacada de `lib/homelitics-nucleo.ts`; **confirmar con el grep de
-arriba** qué usa realmente cada pantalla y recortar lo que sobre):
+Lista confirmada con el reconocimiento de la fase 0 (ver "Reconocimiento
+(fase 0)", punto 2). Solo entra lo que llama un **Client Component**: los
+Server Components usan `apiPublico` directo contra el API y no pasan por
+este proxy.
 
 | Método | Ruta | Pantalla |
 |---|---|---|
 | GET | `/health` | `/entrar` (despertar) |
-| GET | `/listings/{id}` | 2.1 |
-| GET | `/leads/{id}` | 2.1 (el agente correcto es el del lead) |
-| GET | `/agents/{id}/slots` | 2.1 |
+| GET | `/agents/{id}/slots` | 2.1, 2.3 |
 | POST | `/leads/{id}/appointments` | 2.2 |
 | GET | `/appointments/{id}` | 2.3, 2.5 |
 | PATCH | `/appointments/{id}` | 2.3, parche de 2.5 |
 | GET, POST | `/appointments/{id}/feedback` | 2.5 |
 
 Las rutas se validan con expresiones regulares ancladas (`^...$`) y los `{id}`
-deben ser UUID. Nunca abrir `/leads` (lista), `/me`, `/analytics/*`,
-`/interactions` ni `/transitions`.
+deben ser UUID. Nunca abrir `/leads` (lista), `/leads/{id}`,
+`/listings/{id}`, `/me`, `/analytics/*`, `/interactions` ni `/transitions`.
+
+GET `/listings/{id}` y GET `/leads/{id}` estaban en la lista inicial y se
+quitaron (2026-10-25): las pantallas 2.1, 2.2 y 2.3 los piden solo desde Server
+Components. Si una fase posterior los necesita desde el navegador, se agregan
+entonces y vuelve el riesgo de abajo.
 
 ### Riesgo que se acepta y se documenta
 
-- `GET /leads/{id}` por el proxy público devuelve datos del lead a quien tenga
-  el UUID. Hoy pasa exactamente lo mismo (el enlace es el control de acceso),
-  así que **no empeora**, pero queda escrito.
 - La cuenta de servicio pertenece a **una** agencia: un cliente de otra agencia
   verá 404. También pasa hoy.
+- Quien tenga el UUID de un lead, una propiedad o una cita sigue viendo **lo que
+  la página renderiza** con él (dirección, horario, nombre del agente): el
+  enlace es el control de acceso, igual que hoy. Lo que ya no puede es leer el
+  `LeadOut` crudo de `GET /leads/{id}` desde el navegador. Con un UUID de cita
+  sí puede leer, cancelar o mover esa cita por el proxy, como hoy.
 - Ambos puntos van a "Bloqueos" en `docs/SPRINT_LINEA2.md`, con la solución de
   fondo: endpoints públicos en el API con un token firmado en el enlace (L1).
 
 **Done:** con las cookies borradas (sin agente), las pantallas 2.1–2.5 funcionan
-igual que antes; `curl /api/publico/leads` y `curl /api/publico/me` dan 404.
+igual que antes; `curl /api/publico/leads`, `curl /api/publico/me` y
+`curl /api/publico/leads/<uuid real>` dan 404.
 
 ---
 
@@ -381,7 +389,7 @@ punto 7).
 | 9 | **Aislamiento**: agente de agencia A en un navegador y de agencia B en otro (o incógnito), recargando de forma intercalada | Cada uno ve siempre solo su agencia | — |
 | 10 | Primera petición con el API dormido | Mensaje de espera, no de error | 5 |
 | 11 | Pantallas 2.1–2.5 sin ninguna sesión de agente | Funcionan igual que antes | — |
-| 12 | `curl` a `/api/publico/leads`, `/api/publico/me`, `/api/publico/analytics/north-star` | 404 | — |
+| 12 | `curl` a `/api/publico/leads`, `/api/publico/leads/<uuid real>`, `/api/publico/listings/<uuid real>`, `/api/publico/me`, `/api/publico/analytics/north-star` | 404 | — |
 | 13 | `curl` a `/api/homelitics/me` sin cookie | 401 | — |
 
 El caso 9 es el que detecta un caché compartido por error. Si alguna vez
@@ -424,3 +432,155 @@ La fase 6 tiene que estar lista **antes** de que la fase 2 llegue a `main`: en
 cuanto `lib/session.ts` deja de usar el agente demo, las pantallas de cliente
 se rompen si todavía no existe `apiPublico`. Lo más seguro es hacer 2 y 6 en la
 misma rama.
+
+---
+
+## Reconocimiento (fase 0)
+
+Hecho el 2026-10-25 leyendo el código de `feat/Sprint7` (commit `aa8a541`),
+sin cambiar ningún archivo de código. Cubre solo la última casilla de la
+fase 0 y lo que necesitan las fases 1, 2, 5 y 6; las cuatro casillas de
+Supabase y cuentas siguen abiertas.
+
+### 1. URLs reales (para la lista pública del middleware)
+
+| Grupo | Archivo | URL |
+|---|---|---|
+| `(cliente)` | `propiedades/[listingId]/agendar/page.tsx` | `/propiedades/{listingId}/agendar?leadId=…` (2.1) |
+| `(cliente)` | `propiedades/[listingId]/agendar/confirmar/page.tsx` | `/propiedades/{listingId}/agendar/confirmar?…` (2.2) |
+| `(cliente)` | `citas/[appointmentId]/page.tsx` | `/citas/{appointmentId}` (2.3) |
+| `(cliente)` | `citas/[appointmentId]/encuesta/page.tsx` | `/citas/{appointmentId}/encuesta` (2.5) |
+| `(agente)` | `tablero/page.tsx` | `/tablero` (HU-06) |
+| `(agente)` | `leads/[leadId]/page.tsx` | `/leads/{leadId}` (2.4, HU-08, HU-11, HU-12) |
+| `(agente)` | `embudo/page.tsx` | `/embudo` (HU-17) |
+| `(agente)` | `riesgo/page.tsx` | `/riesgo` (HU-13) |
+
+Fuera de los dos grupos:
+
+| URL | Qué es | Propuesta para el middleware |
+|---|---|---|
+| `/` | `app/page.tsx`, "en construcción" | protegida por defecto (o redirigir a `/tablero`); no hace falta abrirla |
+| `/dev/explorar` | herramienta de desarrollo, llama `api.yo()` y `api.leads()` | **protegida**: hoy no tiene ninguna guarda y lista leads de la agencia |
+| `/api/mocktest` | casos de prueba de los mocks, usa `api` | **protegida** (mismo motivo) |
+| `/api/homelitics/*` | proxy del agente | pasa sin redirigir; responde su propio 401 |
+| `/entrar`, `/api/publico/*` | todavía no existen (fases 3 y 6) | públicas |
+
+**Lista pública resultante:** `/entrar`, prefijo `/propiedades/`, prefijo
+`/citas/`, `/api/publico/` y `/api/homelitics/` (este último sin
+redirección). Ninguna ruta de `(agente)` empieza por `/propiedades` ni por
+`/citas`, así que basta con comparar el prefijo.
+
+### 2. Usos de `api.` en `(cliente)` y en sus componentes
+
+Componentes que **solo** usa `(cliente)` (comprobado con grep de sus
+imports): `CitaAcciones`, `ConfirmarCitaAcciones`, `EncuestaFlujo`,
+`EncuestaAcciones`, `FichaPropiedad`, `GrillaHorarios`, `SelectorNuevoHorario`.
+`Aviso` y `TarjetaCita` se comparten con `(agente)` pero no llaman al API.
+
+**Server Components** (importan `api` de `lib/homelitics.ts`, van directo al
+API, **no pasan por ningún proxy**):
+
+| Archivo | Llamada | Método y ruta |
+|---|---|---|
+| `propiedades/[listingId]/agendar/page.tsx:43` | `api.listing`, `api.lead` | GET `/listings/{id}`, GET `/leads/{id}` |
+| `propiedades/[listingId]/agendar/confirmar/page.tsx:59` | `api.listing`, `api.lead` | GET `/listings/{id}`, GET `/leads/{id}` |
+| `citas/[appointmentId]/page.tsx:30-32` | `api.cita`, `api.lead`, `api.listing` | GET `/appointments/{id}`, GET `/leads/{id}`, GET `/listings/{id}` |
+| `citas/[appointmentId]/encuesta/page.tsx:27` | `api.cita` | GET `/appointments/{id}` |
+
+**Client Components** (importan `api` de `lib/homelitics-navegador.ts`,
+pasan por el proxy):
+
+| Archivo | Llamada | Método y ruta |
+|---|---|---|
+| `GrillaHorarios.tsx:48` | `api.slots` | GET `/agents/{id}/slots?from&to` |
+| `SelectorNuevoHorario.tsx:47` | `api.slots` | GET `/agents/{id}/slots?from&to` |
+| `ConfirmarCitaAcciones.tsx:77` | `api.crearCita` | POST `/leads/{id}/appointments` |
+| `CitaAcciones.tsx:52` | `api.cita` (relee cada 5 s) | GET `/appointments/{id}` |
+| `CitaAcciones.tsx:84, 97` | `api.actualizarCita` | PATCH `/appointments/{id}` |
+| `EncuestaFlujo.tsx:40` | `api.actualizarCita` (parche `COMPLETED`) | PATCH `/appointments/{id}` |
+| `EncuestaFlujo.tsx:89` | `api.feedbackDeCita` | GET `/appointments/{id}/feedback` |
+| `EncuestaAcciones.tsx:50` | `api.enviarEncuesta` | POST `/appointments/{id}/feedback` |
+
+Ojo: `api.slots` **no aparece** con `grep "api\."` porque está partido en dos
+líneas (`api` / `.slots(...)`). En la fase 6, cambiar los imports y buscar
+por el import (`from "@/lib/homelitics`), no por `api.`.
+
+**Comparación con la lista blanca de la fase 6.** La lista blanca solo
+filtra lo que pasa por `/api/publico/*`, es decir, las llamadas de Client
+Components. Las de Server Components van directo al API con `apiPublico` y
+no la atraviesan.
+
+| Fila de la lista | ¿Quién la usa por el proxy? | Veredicto |
+|---|---|---|
+| GET `/health` | nadie hoy; la usará `/entrar` (fase 3) | se queda |
+| GET `/listings/{id}` | **nadie**: solo Server Components | **sobra** en el proxy |
+| GET `/leads/{id}` | **nadie**: solo Server Components | **sobra** en el proxy |
+| GET `/agents/{id}/slots` | `GrillaHorarios`, `SelectorNuevoHorario` | se queda |
+| POST `/leads/{id}/appointments` | `ConfirmarCitaAcciones` | se queda |
+| GET `/appointments/{id}` | `CitaAcciones` | se queda |
+| PATCH `/appointments/{id}` | `CitaAcciones`, `EncuestaFlujo` | se queda |
+| GET, POST `/appointments/{id}/feedback` | `EncuestaFlujo`, `EncuestaAcciones` | se queda |
+
+**Falta:** nada. Ninguna llamada del cliente queda fuera de la lista.
+
+**Aplicado el 2026-10-25:** GET `/listings/{id}` y GET `/leads/{id}` salieron
+de la lista blanca de la fase 6 (los Server Components las siguen haciendo
+con `apiPublico`), y la sección de riesgos aceptados se ajustó: ya no se
+puede leer el `LeadOut` crudo desde el navegador con solo el UUID.
+
+### 3. Dónde se crea el `QueryClient`
+
+- **El del navegador**: `app/providers.tsx:24-26`, dentro de `Providers`,
+  con `useState(() => new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } }))`.
+  Ahí va el `onError` de la fase 2.
+- Además, cuatro páginas de `(agente)` crean un `QueryClient` **por
+  petición, en el servidor**, solo para precargar y deshidratar:
+  `tablero/page.tsx:43`, `leads/[leadId]/page.tsx:61`, `embudo/page.tsx:50`
+  y `riesgo/page.tsx:56`. Esos no llevan `onError` (corren en el servidor;
+  ahí el `no_autenticado` lo resuelve el layout de la fase 4).
+
+Dos cosas para la fase 2:
+- La versión instalada es `@tanstack/react-query` **5.102.8**. En la v5
+  `defaultOptions.queries` ya no acepta `onError`: el manejador global va en
+  `new QueryClient({ queryCache: new QueryCache({ onError }), mutationCache: new MutationCache({ onError }) })`.
+- No todo pasa por React Query. Del lado agente hay llamadas directas que el
+  `onError` global **no** ve: `components/HistorialLead.tsx:68`
+  (`api.crearInteraccion` con `await`) y
+  `features/embudo/components/ExportarEmbudo.tsx:39` (`api.embudoCsv`). Esas
+  tienen que tratar `no_autenticado` en su propio `catch`, o la redirección
+  se pone en `lib/homelitics-navegador.ts` (un solo punto). Del lado cliente
+  las llamadas directas (`GrillaHorarios`, `SelectorNuevoHorario`,
+  `ConfirmarCitaAcciones`, `EncuestaFlujo`, `EncuestaAcciones`) usarán
+  `apiPublico`, que no depende de la sesión del agente.
+
+### 4. Reasignar (HU-08) y rutas de HU-13 y HU-17
+
+Ya existen, y **ya están condicionados al rol** con la identidad de `/me`:
+
+| Qué | Dónde | Control actual |
+|---|---|---|
+| Reasignar, HU-08 | `features/reasignar/components/ReasignarLead.tsx` (+ `ModalReasignar.tsx`, `hooks.ts`), montado en `components/EtapaLead.tsx:64` | `{esAdmin && <ReasignarLead … />}` con `useEsAdmin()` |
+| Tarjeta del tablero | `features/tablero-leads/components/TarjetaLead.tsx:53` | `useEsAdmin()` |
+| Filtro por agente del tablero | `features/tablero-leads/components/FiltrosTablero.tsx:49` | `role === "TEAM_ADMIN"` |
+| HU-17, embudo | `app/(agente)/embudo/page.tsx` (+ `features/embudo/`) | si `/me` dice que no es admin, pinta `Aviso` "solo para administradores" (`:38`) |
+| HU-13, riesgo por agente | `app/(agente)/riesgo/page.tsx` (+ `features/riesgo/`) | mismo `Aviso` (`:44`) |
+| Enlaces del header | `app/(agente)/layout.tsx:40-61` | `esAdmin` esconde "Embudo" y "Leads en riesgo" |
+
+Piezas que el plan da por nuevas y **ya existen** con otro nombre:
+
+| El plan dice (fase 4) | Ya existe |
+|---|---|
+| `lib/agente-actual.ts` con `obtenerAgente = cache(() => api.yo())` | `lib/agente-actual.ts` con `obtenerAgenteActual = cache(() => api.yo())`, `server-only` |
+| `components/AgenteProvider.tsx` con `useAgente()` | `features/agentes/AgenteActual.tsx`: `AgenteActualProvider`, `useAgenteActual()` y `useEsAdmin()`; recibe el `Agent` de `/me`, sin token |
+
+Consecuencias para las fases 4 y 5:
+- **Fase 4**: reutilizar esos dos archivos en vez de crear otros. Lo que
+  cambia es el manejo de errores del layout: hoy atrapa cualquier error de
+  `/me` y sigue con `agente = null`; la fase 4 tiene que distinguir
+  `sin_permiso` (→ `/entrar/salir`) y `no_autenticado` (→ `/entrar`) y solo
+  dejar pasar con `null` el caso del API dormido. El `TODO` a reemplazar está
+  en `app/(agente)/layout.tsx:13-21`.
+- **Fase 5**: el control de reasignar ya cumple. Para HU-13 y HU-17 la única
+  diferencia con el plan es que hoy muestran un `Aviso` en vez de
+  `notFound()`, y que con `/me` caído **se intenta igual** (el API decide
+  con 403). Falta decidir si se cambia a `notFound()` o se deja el aviso.

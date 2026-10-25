@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3000
+    },
+    {
+      "name": "homelitics-web-sin-mocks",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set USE_MOCKS=false&& set NEXT_PUBLIC_USE_MOCKS=false&& npm run dev -- -p 3001"],
+      "port": 3001
     }
   ]
 }
