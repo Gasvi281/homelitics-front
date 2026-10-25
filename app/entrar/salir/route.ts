@@ -10,6 +10,8 @@ import { crearClienteServidor } from "@/lib/supabase/servidor";
  * handler. El botón "Salir" no pasa por aquí: usa la Server Action `salir()`.
  */
 export async function GET(): Promise<never> {
+  // Modo mocks: no hay sesión que cerrar, y sin credenciales Supabase falla.
+  if (process.env.USE_MOCKS === "true") redirect("/entrar");
   const supabase = await crearClienteServidor();
   await supabase.auth.signOut();
   redirect("/entrar?error=sin-agencia");

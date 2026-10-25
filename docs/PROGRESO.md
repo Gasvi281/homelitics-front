@@ -2184,3 +2184,42 @@ Probado (`homelitics-web-sin-mocks-3003`, `USE_MOCKS=false`):
 Pendiente:
 - No hay `app/not-found.tsx`: la página 404 es la de Next, en inglés ("This
   page could not be found."). Falta un 404 propio en español.
+
+## 2026-10-25 — HU-23, fase 7: modo mocks
+
+Hecho:
+- `MOCK_AGENT_ROLE` (`AGENT` | `TEAM_ADMIN`, por defecto `TEAM_ADMIN`) en
+  `lib/mock/index.ts` (`rolMock()`): fija el `role` del agente demo, que es el
+  que devuelve `GET /me`, el que sale en `GET /agents` y el que decide los 403
+  del mock (reasignar, embudo, riesgo por agente). Un valor que no sea uno de
+  los dos lanza un error claro. Documentada en `.env.example` y
+  `lib/mock/README.md` (reemplaza el "cambia `agente.role` a mano").
+- `next.config.ts` pasa `MOCK_AGENT_ROLE` también al navegador (`env`), para
+  que las dos mitades del mock respondan con el mismo rol.
+- `/entrar` con `USE_MOCKS=true` redirige a `rutaSegura(siguiente)` (el
+  tablero si no hay). El middleware ya no exigía sesión con mocks desde la
+  fase 1.
+- "Salir" (`salir()`) y `/entrar/salir` con mocks no llaman a Supabase (sin
+  credenciales fallaba `createServerClient`): van a `/entrar`, que salta al
+  tablero.
+
+Decidido:
+- Una sola variable y no un espejo `NEXT_PUBLIC_MOCK_AGENT_ROLE`: `env` de
+  `next.config.ts` la inlina en los dos bundles. No es secreto. Cambiarla
+  exige reiniciar `npm run dev`.
+
+Probado (servidor lanzado por un script de Node que vacía
+`HOMELITICS_API_URL`, `NEXT_PUBLIC_SUPABASE_*` y `SERVICE_AGENT_*`; con el
+`bash` de WSL las variables no llegan al proceso de Windows):
+- `TEAM_ADMIN`: `/`, `/tablero`, `/leads/<id>` (con Reasignar), `/embudo`,
+  `/riesgo`, `/dev/explorar`, `/propiedades/<id>/agendar` (y `confirmar`),
+  `/citas/<id>` y su encuesta → 200, sin errores en el log. `/entrar` →
+  `/tablero`; `?siguiente=/riesgo` → `/riesgo`; `?siguiente=//otro.sitio` →
+  `/tablero`; "Salir" y `/entrar/salir` → `/entrar` → `/tablero`.
+- `MOCK_AGENT_ROLE=AGENT`: `/me` responde `AGENT`, sin Reasignar en el lead,
+  sin enlaces a Embudo ni Leads en riesgo, y `/embudo` y `/riesgo` pintan 404.
+- `type-check` y `lint` limpios.
+
+Pendiente:
+- Fase 8 (documentación y `DEMO_AGENT_*` → `SERVICE_AGENT_*` en README y
+  `CLAUDE.md`).

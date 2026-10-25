@@ -1,5 +1,7 @@
+import { redirect } from "next/navigation";
 import { Aviso } from "@/components/Aviso";
 import { FormularioEntrar } from "@/components/FormularioEntrar";
+import { rutaSegura } from "@/lib/redireccion";
 
 /**
  * Login del agente (HU-23, fase 3, AC1).
@@ -10,6 +12,9 @@ import { FormularioEntrar } from "@/components/FormularioEntrar";
  *
  * `?error=sin-agencia` lo pone el layout de (agente) cuando GET /me responde
  * 403 (AC4, fase 4).
+ *
+ * Con `USE_MOCKS=true` no hay a quién autenticar: va directo a `siguiente`
+ * o al tablero con el agente del mock (fase 7).
  */
 export default async function Entrar({
   searchParams,
@@ -17,6 +22,9 @@ export default async function Entrar({
   searchParams: Promise<{ siguiente?: string | string[]; error?: string | string[] }>;
 }) {
   const { siguiente, error } = await searchParams;
+  if (process.env.USE_MOCKS === "true") {
+    redirect(rutaSegura(typeof siguiente === "string" ? siguiente : null));
+  }
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">

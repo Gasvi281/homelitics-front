@@ -119,10 +119,24 @@ const nuevoId = () => uuid(siguienteId++);
 
 /* ---------- datos base ---------- */
 
+/**
+ * Rol del agente demo (HU-23, fase 7): `MOCK_AGENT_ROLE=AGENT` muestra la UI
+ * sin lo que es de admin (reasignar, /embudo, /riesgo). Por defecto
+ * `TEAM_ADMIN`. next.config.ts la pasa también al navegador, para que las dos
+ * mitades del mock respondan con el mismo rol.
+ */
+function rolMock(): Agent["role"] {
+  const valor = process.env.MOCK_AGENT_ROLE;
+  if (!valor) return "TEAM_ADMIN";
+  const rol = z.enum(["AGENT", "TEAM_ADMIN"]).safeParse(valor);
+  if (!rol.success) throw new Error(`MOCK_AGENT_ROLE debe ser AGENT o TEAM_ADMIN, no "${valor}".`);
+  return rol.data;
+}
+
 const agente: Agent = {
   id: AGENT_ID,
   agency_id: AGENCY_ID,
-  role: "TEAM_ADMIN",
+  role: rolMock(),
   active: true,
   full_name: "Hernando Carrillo",
   email: null,
@@ -1475,7 +1489,7 @@ function motivosPerdidaMock(params: URLSearchParams) {
  * `rol: "AGENT"` cambia el rol que devuelve GET /me y hace que reasignar dé
  * 403. Ojo: el layout de (agente) lee /me en el SERVIDOR, así que desde la
  * consola del navegador solo cambia el POST (sirve para ver el 403 dentro del
- * modal); para esconder los botones de admin hay que cambiar `agente.role`.
+ * modal); para esconder los botones de admin está `MOCK_AGENT_ROLE=AGENT`.
  * `fallaAnalitica` hace fallar los GET de `/analytics/*` (HU-17) con ese
  * `kind`: `falla` solo toca escrituras y el embudo solo lee.
  */

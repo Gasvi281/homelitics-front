@@ -9,7 +9,7 @@ Datos base del prototipo, para que las capturas y la demo coincidan:
 
 - Propiedad: Manila 206, Medellín. Transversal 80A # 81-57 apto 206.
   83,80 m², 1 habitación, 1 baño, `asking_price: "650137717.29"`.
-- Agente: Hernando Carrillo, rol `TEAM_ADMIN`. Hay tres más en su agencia (ver tabla de abajo).
+- Agente: Hernando Carrillo, rol `TEAM_ADMIN` (o `AGENT` con `MOCK_AGENT_ROLE=AGENT`). Hay tres más en su agencia (ver tabla de abajo).
 - Cliente: Laura Restrepo. Primer contacto el 1 de septiembre por Telegram.
 - Lead en etapa `VISIT_SCHEDULED`.
 - Cita el jueves 17 a las 10:30 de Bogotá, o sea `2026-09-17T15:30:00Z`.
@@ -47,7 +47,7 @@ fijos (exportados como `MOCK_IDS`):
 | Embudo vacío | `created_from=2030-01-01`: todas las etapas en 0 y porcentajes en `null`. |
 | Motivos de pérdida (HU-17) | `GET /analytics/lost-reasons?days=`: misma cohorte, contada sobre la fecha de pérdida hacia atrás desde un "hoy" fijo (`2026-09-27`, o ahora si es más tarde). 422 con `days` fuera de 1–730. Sin 403, como el API. |
 | Error en analítica | `globalThis.__homeliticsMock = { fallaAnalitica: "red" }` (o `"servidor"`): los GET de `/analytics/*` fallan con ese `kind`. `falla` no sirve aquí porque solo toca escrituras. Ojo: la página precarga en el servidor, así que desde la consola solo se ve en lo que el navegador vuelve a pedir (cambiar los días de motivos, reintentar). |
-| Usuario sin permiso de admin | `globalThis.__homeliticsMock = { rol: "AGENT" }` en la consola del navegador: reasignar da 403 (el modal lo dice). Los botones siguen visibles porque el layout lee `/me` en el servidor; para esconderlos hay que cambiar `role` de `agente` en `lib/mock/index.ts`. |
+| Usuario sin permiso de admin | `globalThis.__homeliticsMock = { rol: "AGENT" }` en la consola del navegador: reasignar da 403 (el modal lo dice). Los botones siguen visibles porque el layout lee `/me` en el servidor; para esconderlos, `MOCK_AGENT_ROLE=AGENT` en `.env.local` y reiniciar `npm run dev`. |
 
 Para lo que los datos solos no producen (una escritura que falla por red, un
 409 que el front no pudo prever, una respuesta lenta para ver estados

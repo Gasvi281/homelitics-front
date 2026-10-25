@@ -51,6 +51,8 @@ export async function entrar(_previo: EstadoEntrar, formData: FormData): Promise
 }
 
 export async function salir(): Promise<never> {
+  // Modo mocks: no hay sesión que cerrar, y sin credenciales Supabase falla.
+  if (process.env.USE_MOCKS === "true") redirect("/entrar");
   const supabase = await crearClienteServidor();
   await supabase.auth.signOut();
   redirect("/entrar");
