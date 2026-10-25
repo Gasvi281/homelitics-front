@@ -2151,3 +2151,36 @@ Probado (`homelitics-web-sin-mocks-3003`, `USE_MOCKS=false`):
 
 Pendiente:
 - Caso 403 completo: falta un usuario de Auth sin agente vinculado.
+
+## 2026-10-25 — HU-23, fase 5: permisos por rol en la UI
+
+Hecho:
+- `app/(agente)/embudo/page.tsx` (HU-17) y `app/(agente)/riesgo/page.tsx`
+  (HU-13): si `/me` dice que el agente no es `TEAM_ADMIN` → `notFound()`, en
+  vez del `Aviso` "solo para administradores". Misma convención 404 del API.
+- Reasignar (HU-08) no se tocó: ya se renderizaba solo con `useEsAdmin()`
+  (`components/EtapaLead.tsx`), que es `useAgenteActual()?.role ===
+  "TEAM_ADMIN"`. Las dos pantallas existían; no hubo nada que anotar como
+  faltante.
+
+Decidido:
+- Se usan los nombres que ya existen (`obtenerAgenteActual`, `useEsAdmin`) y
+  no `obtenerAgente`/`useAgente().rol` del plan, igual que en la fase 4.
+- Si `/me` falla por otra cosa que 401/403 (API dormido), la página se
+  intenta igual: el API es la autoridad. No se duplica autorización.
+- El 404 llega con estado HTTP 200: el layout de `(agente)` hace streaming
+  dentro de un `Suspense` y la cabecera ya salió cuando la página llama
+  `notFound()`. Next igual pinta la página 404 y le pone `noindex`. Para la UI
+  da lo mismo.
+
+Probado (`homelitics-web-sin-mocks-3003`, `USE_MOCKS=false`):
+- `AGENT` (Liliana Rengifo Ortiz): `/embudo` y `/riesgo` muestran la página
+  404; sin "Embudo" ni "Leads en riesgo" en el encabezado; en
+  `/leads/{id}` no aparece "Reasignar" ni "A cargo de".
+- `TEAM_ADMIN` (Carlos Juan Restrepo Pulido): `/embudo` y `/riesgo` cargan
+  con sus datos; en `/leads/{id}` aparecen "Reasignar" y "A cargo de".
+- `type-check` y `lint` limpios.
+
+Pendiente:
+- No hay `app/not-found.tsx`: la página 404 es la de Next, en inglés ("This
+  page could not be found."). Falta un 404 propio en español.

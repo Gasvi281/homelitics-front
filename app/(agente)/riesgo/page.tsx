@@ -1,9 +1,9 @@
+import { notFound } from "next/navigation";
 import { dehydrate, HydrationBoundary, QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/homelitics";
 import { obtenerAgenteActual } from "@/lib/agente-actual";
 import { leerUmbral } from "@/lib/umbral";
 import type { Agent } from "@/lib/schemas";
-import { Aviso } from "@/components/Aviso";
 import { clavePropiedades, QUERY_PROPIEDADES } from "@/features/tablero-leads/claves";
 import { claveRiesgo, leerFiltrosRiesgo, queryRiesgo } from "@/features/riesgo/claves";
 import { ExportarRiesgo } from "@/features/riesgo/components/ExportarRiesgo";
@@ -19,7 +19,7 @@ import { ReporteRiesgo } from "@/features/riesgo/components/ReporteRiesgo";
  * `HydrationBoundary`.
  *
  * Solo `TEAM_ADMIN`, con el mismo control que /embudo: si GET /me dice que no
- * lo es, no se llama al API. GET /leads/at-risk no lo exige (un `AGENT` lo
+ * lo es, 404 sin llamar al API. GET /leads/at-risk no lo exige (un `AGENT` lo
  * usa para su aviso del header), pero el reporte de todo el equipo es del
  * admin. Si /me falló, se intenta igual.
  *
@@ -41,14 +41,8 @@ export default async function RiesgoPage({
     agente = null;
   }
 
-  if (agente && agente.role !== "TEAM_ADMIN") {
-    return (
-      <main className="mx-auto max-w-7xl px-4 py-8">
-        <h1 className="mb-6 text-lg font-semibold text-neutral-900">Leads en riesgo por agente</h1>
-        <Aviso>Esta vista es solo para administradores del equipo.</Aviso>
-      </main>
-    );
-  }
+  // 404 y no un aviso: misma convención del API para lo que no es tuyo (HU-23, fase 5).
+  if (agente && agente.role !== "TEAM_ADMIN") notFound();
 
   const umbral = await leerUmbral();
   const filtros = leerFiltrosRiesgo(await searchParams);
