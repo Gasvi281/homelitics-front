@@ -2113,3 +2113,41 @@ Pendiente (pruebas manuales más adelante, con las dos cuentas de prueba):
 - Contraseña incorrecta con un correo real: debe dar el mismo mensaje.
 - `/entrar?siguiente=//otro.sitio` (y `https://otro.sitio`): debe ir al tablero.
 - `salir()` todavía no tiene botón: lo pone el layout de `(agente)` en la fase 4.
+
+## 2026-10-25 — HU-23, fase 4: layout de `(agente)` con identidad y rol
+
+Hecho:
+- `app/(agente)/layout.tsx`: resuelto el TODO. GET /me con 403
+  (`sin_permiso`) → `/entrar/salir`; con 401 (`no_autenticado`) → `/entrar`;
+  cualquier otro error (API dormido, 5xx) sigue con `agente = null` como antes.
+  Encabezado con el nombre del agente (`full_name`, o el correo si no tiene) y
+  el botón "Salir" (Server Action `salir()`).
+- `app/entrar/salir/route.ts` (nuevo): `signOut()` y
+  `/entrar?error=sin-agencia`. El layout no puede escribir cookies.
+- `app/(agente)/loading.tsx` (nuevo): "Despertando el servicio…" (AC5).
+- `.claude/launch.json`: `homelitics-web-sin-mocks-3003`, porque el 3001
+  estaba ocupado por otro servidor.
+
+Decidido:
+- **No** se crearon `obtenerAgente` ni `components/AgenteProvider.tsx` con
+  `{ id, nombre, rol, agenciaId }`: ya existían `obtenerAgenteActual`
+  (`lib/agente-actual.ts`) y `AgenteActualProvider`/`useAgenteActual`/
+  `useEsAdmin` (`features/agentes/AgenteActual.tsx`), con el `Agent` de /me
+  sin token. Los usan 8 componentes y los PDF leen `agente.email`; cambiar
+  la forma obligaba a tocar pantallas internas.
+- Un `loading.tsx` no envuelve el layout de su propio segmento, así que el
+  `await` de /me va en un componente interno dentro de
+  `<Suspense fallback={<Cargando />}>`, reusando el de `loading.tsx`.
+
+Probado (`homelitics-web-sin-mocks-3003`, `USE_MOCKS=false`):
+- `TEAM_ADMIN`: el encabezado muestra "Carlos Juan Restrepo Pulido", igual que
+  `/me`, con "Embudo" y "Leads en riesgo".
+- `AGENT`: el encabezado muestra "Liliana Rengifo Ortiz", igual que `/me`,
+  sin "Embudo" ni "Leads en riesgo".
+- Con las dos cuentas: "Salir" → `/entrar`; "atrás" →
+  `/entrar?siguiente=%2Ftablero`; `/api/homelitics/me` → 401.
+- `/entrar/salir` sin sesión → `/entrar?error=sin-agencia` con el aviso.
+- `type-check` y `lint` limpios.
+
+Pendiente:
+- Caso 403 completo: falta un usuario de Auth sin agente vinculado.
