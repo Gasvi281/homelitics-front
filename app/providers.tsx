@@ -1,7 +1,8 @@
 "use client";
 
-import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider, type Mutation } from "@tanstack/react-query";
 import { useState } from "react";
+import { PREFIJO_AVISOS } from "@/features/avisos/claves";
 import { HomeliticsError } from "@/lib/errores";
 
 /**
@@ -27,6 +28,11 @@ import { HomeliticsError } from "@/lib/errores";
  * Las llamadas que no pasan por React Query (p. ej. HistorialLead,
  * ExportarEmbudo) no lo ven. `apiPublico` nunca produce `no_autenticado`: el
  * proxy público responde 502 si la cuenta de servicio falla.
+ *
+ * `onSuccess` global (2.32): la guía del API pide releer los avisos después
+ * de que el agente actúe sobre un lead o una visita, porque eso puede
+ * generar uno. Se salta las mutaciones de avisos (su `mutationKey` empieza
+ * por `PREFIJO_AVISOS`): esas ya cambiaron el caché y no deben releer.
  */
 function alEntrarSiVencio(error: unknown) {
   if (!(error instanceof HomeliticsError) || error.kind !== "no_autenticado") return;
@@ -34,13 +40,27 @@ function alEntrarSiVencio(error: unknown) {
   window.location.assign(`/entrar?siguiente=${encodeURIComponent(siguiente)}`);
 }
 
+/**
+ * Sin `return` de la promesa a propósito: TanStack espera el `onSuccess` del
+ * MutationCache antes del de la mutación, y con el API dormido releer los
+ * avisos puede tardar un minuto.
+ */
+function releerAvisos(qc: QueryClient, mutation: Mutation<unknown, unknown, unknown, unknown>) {
+  if (mutation.options.mutationKey?.[0] === PREFIJO_AVISOS[0]) return;
+  void qc.invalidateQueries({ queryKey: PREFIJO_AVISOS });
+}
+
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(
-    () => new QueryClient({
+  const [queryClient] = useState(() => {
+    const qc: QueryClient = new QueryClient({
       queryCache: new QueryCache({ onError: alEntrarSiVencio }),
-      mutationCache: new MutationCache({ onError: alEntrarSiVencio }),
+      mutationCache: new MutationCache({
+        onError: alEntrarSiVencio,
+        onSuccess: (_data, _vars, _contexto, mutation) => releerAvisos(qc, mutation),
+      }),
       defaultOptions: { queries: { staleTime: 30_000 } },
-    }),
-  );
+    });
+    return qc;
+  });
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }
