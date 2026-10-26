@@ -7,6 +7,7 @@ import {
 import { api, HomeliticsError } from "@/lib/homelitics-navegador";
 import { esTerminal } from "@/lib/etapas";
 import type { LeadCard, Listing, LostReason, Stage } from "@/lib/schemas";
+import { PREFIJO_RIESGO } from "@/features/riesgo/claves";
 import {
   aFiltrosApi, claveCitasLead, claveInteracciones, claveLead, claveLeadsTablero,
   clavePropiedades, claveTareasLead, claveTransiciones, prefijoLead,
@@ -111,8 +112,9 @@ const CLAVE_MOVER = ["leads", "mover"] as const;
  *   `alFallar` (va aquí y no en las opciones de `mutate()`, que solo corren
  *   para la última llamada: con dos tarjetas en vuelo, se perdería el error
  *   de la primera).
- * - onSettled: relee el tablero y todo lo del lead bajo `prefijoLead()`
- *   (una transición con nota, o cualquier LOST, escribe una STATUS_CHANGE).
+ * - onSettled: relee el tablero, todo lo del lead bajo `prefijoLead()`
+ *   (una transición con nota, o cualquier LOST, escribe una STATUS_CHANGE)
+ *   y los leads en riesgo (un lead cerrado sale de at-risk).
  *
  * Sirve también para LOST (2.11 — HU-09 AC1), desde el tablero y desde el
  * detalle del lead: `lost_reason` y `note` van en las variables.
@@ -169,6 +171,8 @@ export function useMoverLead({
       // Etapa, log, historial (LOST siempre escribe una STATUS_CHANGE), citas
       // (cerrar cancela las abiertas) y tareas del lead.
       void qc.invalidateQueries({ queryKey: prefijoLead(lead.id) });
+      // Todos los umbrales: el resaltado del tablero, el header y el reporte.
+      void qc.invalidateQueries({ queryKey: PREFIJO_RIESGO });
       // Con otro movimiento todavía en vuelo, releer ahora traería el tablero
       // sin ese cambio y la otra tarjeta saltaría atrás un momento: relee el
       // último que termine (este todavía cuenta como en vuelo aquí).

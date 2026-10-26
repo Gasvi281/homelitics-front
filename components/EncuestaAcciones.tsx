@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { api, HomeliticsError } from "@/lib/homelitics-navegador";
+import { apiPublico, HomeliticsError } from "@/lib/homelitics-navegador";
 import type { Objection } from "@/lib/schemas";
+import { Aviso } from "@/components/Aviso";
 
 const ETIQUETA_OBJECION: Record<Objection, string> = {
   PRICE: "Precio",
@@ -47,7 +48,7 @@ export function EncuestaAcciones({ appointmentId }: { appointmentId: string }) {
     if (interesScore === null) return;
     setEstado({ tipo: "enviando" });
     try {
-      await api.enviarEncuesta(appointmentId, {
+      await apiPublico.enviarEncuesta(appointmentId, {
         submitted_by: "CLIENT",
         interest_score: interesScore,
         objection: objecion ?? undefined,
@@ -67,52 +68,57 @@ export function EncuestaAcciones({ appointmentId }: { appointmentId: string }) {
 
   if (estado.tipo === "enviada") {
     return (
-      <div className="rounded-lg border border-green-200 bg-green-50 p-6 text-sm text-green-700">
-        Gracias por contarnos cómo te fue. Tu respuesta ya quedó registrada.
-      </div>
+      <Aviso variante="exito">
+        <strong className="font-bold">Gracias por contarnos cómo te fue.</strong> Tu respuesta ya
+        quedó registrada.
+      </Aviso>
     );
   }
 
   const enviando = estado.tipo === "enviando";
 
   return (
-    <div className="rounded-lg border border-neutral-200 p-4 sm:p-6">
-      <fieldset disabled={enviando}>
-        <legend className="text-sm font-medium text-neutral-900">
-          ¿Qué tan interesado quedaste en la propiedad?
-        </legend>
-        <div className="mt-3 flex gap-2">
-          {[1, 2, 3, 4, 5].map((n) => (
-            <button
-              key={n}
-              type="button"
-              onClick={() => setInteresScore(n)}
-              aria-pressed={interesScore === n}
-              className={`h-11 w-11 rounded-full border text-sm font-medium ${
-                interesScore === n
-                  ? "border-neutral-900 bg-neutral-900 text-white"
-                  : "border-neutral-300 text-neutral-700"
-              }`}
-            >
-              {n}
-            </button>
-          ))}
+    <section className="panel flex flex-col gap-7 px-10 py-9">
+      <fieldset disabled={enviando} className="flex flex-col gap-7 disabled:opacity-70">
+        <div role="group" aria-labelledby="encuesta-interes">
+          <p id="encuesta-interes" className="mb-3 text-lg font-bold">¿Qué tan interesado quedaste en la propiedad?</p>
+          <div className="grid grid-cols-5 overflow-hidden rounded-[18px] border-[1.5px] border-borde-fuerte">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setInteresScore(n)}
+                aria-pressed={interesScore === n}
+                className={`h-19 font-display text-[26px] font-extrabold transition-colors not-last:border-r-[1.5px] not-last:border-borde-fuerte ${
+                  interesScore === n ? "bg-sol text-tinta" : "bg-white text-tinta hover:bg-neblina"
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <div className="mt-2 flex justify-between text-sm text-tinta-tenue">
+            <span>1, nada interesado</span>
+            <span>5, muy interesado</span>
+          </div>
         </div>
-        <p className="mt-1 text-xs text-neutral-400">1 nada interesado, 5 muy interesado</p>
 
-        <div className="mt-6">
-          <p className="text-sm font-medium text-neutral-900">¿Algo que no te convenció?</p>
-          <div className="mt-3 flex flex-wrap gap-2">
+        <div role="group" aria-labelledby="encuesta-objecion">
+          <p id="encuesta-objecion" className="mb-3 text-lg font-bold">
+            ¿Algo que no te convenció?{" "}
+            <span className="font-normal text-tinta-tenue">Elige uno, si aplica</span>
+          </p>
+          <div className="flex flex-wrap gap-2.5">
             {OBJECIONES.map((codigo) => (
               <button
                 key={codigo}
                 type="button"
                 onClick={() => setObjecion((actual) => (actual === codigo ? null : codigo))}
                 aria-pressed={objecion === codigo}
-                className={`rounded-full border px-3 py-1.5 text-sm ${
+                className={`h-12 rounded-full px-5.5 text-[15px] transition-colors ${
                   objecion === codigo
-                    ? "border-neutral-900 bg-neutral-900 text-white"
-                    : "border-neutral-300 text-neutral-700"
+                    ? "bg-tinta font-bold text-white"
+                    : "border-[1.5px] border-borde-fuerte bg-white font-semibold text-tinta hover:border-tinta"
                 }`}
               >
                 {ETIQUETA_OBJECION[codigo]}
@@ -121,31 +127,36 @@ export function EncuestaAcciones({ appointmentId }: { appointmentId: string }) {
           </div>
         </div>
 
-        <div className="mt-6">
-          <label htmlFor="encuesta-texto-libre" className="text-sm font-medium text-neutral-900">
-            ¿Algo más que quieras contarnos?
+        <div>
+          <label htmlFor="encuesta-texto-libre" className="text-lg font-bold">
+            ¿Algo más que quieras contarnos? <span className="font-normal text-tinta-tenue">Opcional</span>
           </label>
           <textarea
             id="encuesta-texto-libre"
             value={textoLibre}
             onChange={(e) => setTextoLibre(e.target.value.slice(0, 2000))}
-            rows={4}
+            rows={3}
             maxLength={2000}
-            className="mt-2 w-full rounded border border-neutral-300 p-3 text-sm"
+            className="campo mt-2 rounded-[18px] px-4.5"
           />
         </div>
       </fieldset>
 
-      {estado.tipo === "error" && <p className="mt-4 text-sm text-red-700">{estado.mensaje}</p>}
+      {estado.tipo === "error" && <Aviso variante="error">{estado.mensaje}</Aviso>}
 
-      <button
-        type="button"
-        onClick={enviar}
-        disabled={interesScore === null || enviando}
-        className="mt-6 w-full rounded bg-neutral-900 px-4 py-3 text-center font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
-      >
-        {enviando ? "Enviando…" : "Enviar"}
-      </button>
-    </div>
+      <div className="flex flex-wrap items-center gap-4">
+        <button
+          type="button"
+          onClick={enviar}
+          disabled={interesScore === null || enviando}
+          className="btn btn-lg btn-primario"
+        >
+          {enviando ? "Enviando tu opinión…" : "Enviar mi opinión"}
+        </button>
+        {interesScore === null && (
+          <span className="text-sm text-tinta-suave">Para enviar, elige qué tan interesado quedaste.</span>
+        )}
+      </div>
+    </section>
   );
 }

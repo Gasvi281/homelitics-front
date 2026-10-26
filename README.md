@@ -70,20 +70,31 @@ Copia `.env.example` a `.env.local` y ajusta:
 HOMELITICS_API_URL=https://homelitics-api.onrender.com
 NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key, es público por diseño>
-DEMO_AGENT_EMAIL=<agente demo>
-DEMO_AGENT_PASSWORD=<contraseña del agente demo>
+SERVICE_AGENT_EMAIL=<cuenta de servicio, un AGENT>
+SERVICE_AGENT_PASSWORD=<contraseña de la cuenta de servicio>
 USE_MOCKS=true
 NEXT_PUBLIC_USE_MOCKS=true
+MOCK_AGENT_ROLE=TEAM_ADMIN
 ```
 
 - `USE_MOCKS` / `NEXT_PUBLIC_USE_MOCKS` **tienen que valer lo mismo** — el
   primero lo lee el servidor, el segundo es el espejo que Next mete al
   bundle del navegador (solo las variables `NEXT_PUBLIC_*` llegan ahí). Con
-  `true`, nada toca la red: `lib/mock/index.ts` responde todo desde memoria.
-- `DEMO_AGENT_EMAIL`/`DEMO_AGENT_PASSWORD` y las variables de Supabase solo
-  hacen falta con `USE_MOCKS=false` (ver `lib/session.ts`): el servidor pide
-  un token de agente a Supabase con esas credenciales y lo cachea. Sin ellas
-  en modo mocks, la app arranca igual.
+  `true`, nada toca la red: `lib/mock/index.ts` responde todo desde memoria,
+  el middleware no pide sesión y `/entrar` salta directo al tablero.
+- Los agentes **no usan ninguna credencial de `.env`**: cada uno entra con
+  su propio correo y contraseña en `/entrar` (HU-23) y la sesión vive en una
+  cookie `httpOnly`. Las cuentas las crea el administrador; no hay registro
+  ni recuperación de contraseña en el front.
+- `SERVICE_AGENT_EMAIL`/`SERVICE_AGENT_PASSWORD` son la **cuenta de
+  servicio** de las pantallas de cliente (2.1 a 2.5), que no tienen sesión.
+  Solo la usan `apiPublico` y el proxy `/api/publico/*`, que deja pasar una
+  lista blanca de endpoints. Tiene que ser un `AGENT`, no un `TEAM_ADMIN`.
+  Reemplazan a las antiguas `DEMO_AGENT_*`.
+- Las variables de Supabase y las de la cuenta de servicio solo hacen falta
+  con `USE_MOCKS=false`. En modo mocks la app arranca sin ninguna.
+- `MOCK_AGENT_ROLE` (`AGENT` o `TEAM_ADMIN`, por defecto `TEAM_ADMIN`) fija
+  el rol del agente del mock. Solo cuenta con `USE_MOCKS=true`.
 - El API real duerme a los 15 minutos sin tráfico. La primera petición del
   día puede tardar de 30 a 60 segundos — no es un error, todas las pantallas
   tienen un aviso para eso.
@@ -121,15 +132,18 @@ Dos cosas que conviene saber de los mocks:
   ```
   `rol` solo cambia lo que responde el `POST` de reasignar: el layout de
   agente lee `/me` en el servidor, así que para esconder los controles de
-  admin hay que cambiar `agente.role` en `lib/mock/index.ts`.
-- **El agente demo del mock es `TEAM_ADMIN`**, así que con mocks se ve todo
-  lo de administrador (reasignar, filtro por agente, embudo).
+  admin usa `MOCK_AGENT_ROLE=AGENT` en `.env.local` y reinicia
+  `npm run dev`.
+- **El agente del mock es `TEAM_ADMIN` por defecto**, así que con mocks se
+  ve todo lo de administrador (reasignar, filtro por agente, embudo, riesgo).
 
 **Con `USE_MOCKS=false`** el front pega contra el API real
-(`HOMELITICS_API_URL`) con la credencial que resuelve `lib/session.ts`.
-Hace falta un agente demo real (email/contraseña) provisionado en el
-Supabase del proyecto, y los ids que uses tienen que existir de verdad en
-esa base — no hay forma de "inventar" un lead o una propiedad. **Ojo:
+(`HOMELITICS_API_URL`). Las pantallas de agente usan la sesión de quien
+entró en `/entrar` (`lib/session.ts`); las de cliente, la cuenta de
+servicio (`lib/credencial-servicio.ts`). Hace falta una cuenta de agente
+real provisionada en el Supabase del proyecto, y los ids que uses tienen
+que existir de verdad en esa base — no hay forma de "inventar" un lead o
+una propiedad. **Ojo:
 cualquier acción que mande datos (crear/mover/cancelar una cita, agregar una
 nota, enviar una encuesta, mover un lead de etapa, cerrarlo como ganado o
 perdido, o reasignarlo) escribe en la base compartida de verdad.** Cerrar un
@@ -148,29 +162,33 @@ una fila en `assignment_audit`. No es un ambiente de prueba aislado.
    nueva del navegador si vienes de un reinicio, ver el quirk del dev server
    más abajo).
 
-2. **Confirma que la credencial funciona antes de tocar ninguna pantalla.**
-   El endpoint de humo pega directo al API real independientemente del modo
-   mocks (usa `lib/homelitics.ts`, no los mocks):
+2. **Confirma que las dos credenciales funcionan antes de tocar ninguna
+   pantalla.** La cuenta de servicio se prueba sin sesión: el proxy público
+   pide su token antes de reenviar, así que un `200` en `/health` quiere
+   decir que `SERVICE_AGENT_EMAIL`/`SERVICE_AGENT_PASSWORD` sirven, y un
+   `502` que no:
    ```bash
-   curl http://localhost:3000/api/homelitics/me
+   curl http://localhost:3000/api/publico/health
    ```
-   Si responde `{"id":"...", "agency_id":"...", "role":"AGENT", ...}` con
-   `200`, la credencial de `DEMO_AGENT_EMAIL`/`DEMO_AGENT_PASSWORD` es
-   válida y el API está respondiendo. Un `500` en `/me` fue justo el bug de
-   backend que bloqueó toda la migración a datos reales (ver
-   `docs/PROGRESO.md`, entrada del 2026-09-11) — si vuelve a pasar, no es
-   este repo, es del lado de `homelitics-crm`. La primera llamada del día
-   puede tardar 30-60s (el servicio duerme sin tráfico); si da timeout,
-   reintenta.
+   La de agente se prueba en el navegador: entra en
+   **`http://localhost:3000/entrar`** con tu cuenta y abre
+   **`http://localhost:3000/api/homelitics/me`** en la misma ventana (la
+   cookie viaja sola). Si responde `{"id":"...", "agency_id":"...",
+   "role":"AGENT", ...}`, la sesión es válida y el API está respondiendo.
+   Con `curl` y sin cookie ese mismo endpoint da `401`, a propósito. Un
+   `500` en `/me` fue justo el bug de backend que bloqueó toda la migración
+   a datos reales (ver `docs/PROGRESO.md`, entrada del 2026-09-11) — si
+   vuelve a pasar, no es este repo, es del lado de `homelitics-crm`. La
+   primera llamada del día puede tardar 30-60s (el servicio duerme sin
+   tráfico); si da timeout, reintenta.
 
    Fíjate en el `role`: con `AGENT` la app funciona, pero no muestra nada de
-   administrador (reasignar, "A cargo de", filtro por agente, enlace
-   "Embudo") y `/embudo` solo dice que es para administradores. Para
-   probar HU-08 y HU-17 hace falta que `DEMO_AGENT_EMAIL`/`PASSWORD` sean
-   de un agente `TEAM_ADMIN`. La lista de agentes de la agencia sale de:
-   ```bash
-   curl http://localhost:3000/api/homelitics/agents
-   ```
+   administrador (reasignar, "A cargo de", filtro por agente, enlaces
+   "Embudo" y "Leads en riesgo") y `/embudo` y `/riesgo` dan 404. Para
+   probar HU-08, HU-13 y HU-17 entra con una cuenta `TEAM_ADMIN`; "Salir"
+   está en el encabezado. La lista de agentes de la agencia sale de
+   `http://localhost:3000/api/homelitics/agents`, también con la sesión
+   abierta.
 
 3. **Encuentra leads reales y entra directo a cada pantalla desde el
    navegador — sin ningún `curl`.** Para leads, lo más directo es
@@ -183,7 +201,7 @@ una fila en `assignment_audit`. No es un ambiente de prueba aislado.
    leads de la agencia (más recientes primero, o filtrados por etapa con los
    chips de arriba — `?stage=LOST`, por ejemplo), y por cada uno ya trae
    listo:
-   - si es un lead **tuyo** (del agente demo) o **de otro agente** — importa,
+   - si es un lead **tuyo** (del agente que entró) o **de otro agente** — importa,
      ver el punto 4;
    - la dirección de la propiedad y un link directo a **2.1** y **2.4** con
      el id ya puesto;
@@ -192,12 +210,12 @@ una fila en `assignment_audit`. No es un ambiente de prueba aislado.
    Para el caso puntual del punto 6 (lead en etapa terminal), filtra
    `?stage=LOST` o `?stage=WON` ahí mismo.
 
-   Si preferís la línea de comandos, el mismo dato sale pegándole al
-   **mismo proxy que usa la app** (agrega la credencial automáticamente, no
-   hace falta ningún token a mano):
-   ```bash
-   curl http://localhost:3000/api/homelitics/listings
-   curl "http://localhost:3000/api/homelitics/leads?agent_id=<id-de-/me>&stage=INTERESTED&limit=5"
+   El mismo dato sale del **mismo proxy que usa la app**, abriendo estas
+   URLs en el navegador con la sesión abierta (el proxy agrega el token de
+   la cookie; con `curl` y sin cookie dan `401`):
+   ```
+   http://localhost:3000/api/homelitics/listings
+   http://localhost:3000/api/homelitics/leads?agent_id=<id-de-/me>&stage=INTERESTED&limit=5
    ```
    Filtros disponibles en `GET /leads`: `stage`, `agent_id`, `listing_id`,
    `limit`, `offset`. En `GET /listings`: `status`, `operation_type`, `city`,
@@ -209,9 +227,9 @@ una fila en `assignment_audit`. No es un ambiente de prueba aislado.
    del 2026-09-28), y devuélvelo a su dueño al terminar.
 
 4. **Ten presente el bloqueo 5 al elegir un lead para 2.2.** El estado con
-   el que nace una cita depende de quién hace el `POST` — si el lead es de
-   este mismo agente demo (que es el caso normal, ya que el proxy autentica
-   siempre como él), la cita nace `CONFIRMED` de una, no
+   el que nace una cita depende de quién hace el `POST`. La pantalla 2.2
+   reserva con la cuenta de servicio: si el lead es de esa misma cuenta, la
+   cita nace `CONFIRMED` de una; si es de otro agente, nace
    `PENDING_CONFIRMATION`. No es un bug: la pantalla ya muestra el estado
    real que devuelva el API. Detalle completo en el bloqueo 5 de
    `docs/SPRINT_LINEA2.md`.
@@ -271,8 +289,9 @@ Con `USE_MOCKS=true` todas estas URLs funcionan copiadas tal cual en
 Todas las rutas de `(cliente)` reciben el `leadId`/`listingId` por query
 string o por la URL — no hay sesión de cliente en el API (ver
 `docs/API_CONTRACT.md` §6), así que el enlace en sí es el único control de
-acceso. Las de `(agente)` tampoco exigen sesión todavía (`lib/session.ts`
-sigue en la etapa 1, agente demo — ver `CLAUDE.md`).
+acceso. Las de `(agente)` sí exigen sesión: sin ella, `middleware.ts`
+manda a `/entrar?siguiente=<ruta>` y, al entrar, vuelve a esa ruta. Con
+`USE_MOCKS=true` no se pide sesión.
 
 Las URLs de abajo usan los ids fijos del mock para que se puedan copiar tal
 cual con `USE_MOCKS=true`. Contra el API real (`USE_MOCKS=false`) las rutas
@@ -300,7 +319,7 @@ Con `USE_MOCKS=true`, estos son los ids fijos (`lib/mock/index.ts`):
 | `AGENT_ID_INACTIVO` (Carlos Úsuga, desactivado: reasignarle da 409) | `a10a1000-0000-4000-8000-000000000020` |
 | `AGENT_ID_BOT` (Asistente Homelitics, `AI_AGENT`: solo sale con `include_bots=true`; reasignarle da 409) | `a10a1000-0000-4000-8000-000000000021` |
 
-El tablero trae 14 leads de ejemplo repartidos en las seis etapas (3 en
+El tablero trae 15 leads de ejemplo repartidos en las seis etapas (4 en
 Interesado, 3 en Visita agendada, 2 en Visitó, 2 en Negociando, 2 ganados y
 2 perdidos), repartidos entre los cuatro agentes humanos. El embudo, además,
 suma una cohorte histórica de unos 120 leads que solo existe para analítica
@@ -477,9 +496,14 @@ prueba abrir la URL en una **pestaña nueva**; si sigue, reinicia
 ```
 app/
   (cliente)/   quien busca vivienda, sin sesión
-  (agente)/    quien gestiona leads: tablero, leads/[leadId], embudo;
-               layout con TODO de sesión (etapa 2) que lee el rol de /me
-  api/homelitics/[...path]/route.ts   el proxy — el navegador SIEMPRE pega acá
+  (agente)/    quien gestiona leads: tablero, leads/[leadId], embudo, riesgo;
+               el layout lee /me (nombre, rol, "Salir")
+  entrar/      login del agente (Server Action) y entrar/salir
+  api/homelitics/[...path]/route.ts   proxy del agente: token de la cookie
+  api/publico/[...path]/route.ts      proxy de cliente: cuenta de servicio,
+                                      solo la lista blanca, lo demás 404
+middleware.ts  exige sesión salvo en /entrar, /propiedades, /citas y los
+               dos proxies; renueva la sesión
 features/
   tablero-leads/          el tablero: query keys (claves.ts), hooks y componentes
   agentes/                GET /agents (useAgentes), SelectorAgente, NombreAgente,
@@ -487,8 +511,12 @@ features/
   reasignar/              HU-08: el botón, el diálogo y la mutación
   embudo/                 HU-17: filtros, gráfica, tabla, motivos, CSV y PDF
 lib/
-  session.ts              la ÚNICA fuente de la credencial (server-only)
+  session.ts              credencial del agente: la cookie de la petición (server-only)
+  credencial-servicio.ts  credencial de la cuenta de servicio (server-only)
+  supabase/servidor.ts     cliente de Supabase atado a las cookies
+  redireccion.ts           rutaSegura(): el ?siguiente= del login, sin sitios externos
   homelitics.ts            cliente para Server Components: pega directo al API
+                           (`api` con la sesión, `apiPublico` con la de servicio)
   homelitics-navegador.ts  cliente para Client Components: pega al proxy
   homelitics-nucleo.ts      motor compartido (fetch + zod + errores)
   errores.ts                HomeliticsError, sin dependencias
@@ -506,8 +534,13 @@ Reglas que no se rompen (el porqué está en `CLAUDE.md`, con la historia de
 cómo se descubrieron):
 
 - **El navegador nunca le habla al API directo.** Siempre pasa por
-  `/api/homelitics/*`, que agrega la credencial del lado del servidor. El
-  token no llega nunca al cliente ni a `localStorage`.
+  `/api/homelitics/*` (pantallas de agente) o `/api/publico/*` (pantallas
+  de cliente), que agregan la credencial del lado del servidor. El token
+  no llega nunca al cliente ni a `localStorage`: la sesión vive en una
+  cookie `httpOnly`.
+- **Ninguna variable de módulo guarda algo que dependa del usuario.** Lo
+  comparten todas las peticiones del servidor. La única excepción es
+  `lib/credencial-servicio.ts`.
 - **No importes `lib/homelitics.ts` desde un archivo `"use client"`.**
   Arrastra `lib/session.ts` (`server-only`) y Next niega el build. Los
   Client Components usan `lib/homelitics-navegador.ts` — misma API, mismos

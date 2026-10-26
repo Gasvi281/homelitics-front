@@ -2,11 +2,12 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, HomeliticsError } from "@/lib/homelitics-navegador";
+import { apiPublico, HomeliticsError } from "@/lib/homelitics-navegador";
 import { TERMINAL_APPOINTMENT_STATUS, type Appointment, type Channel } from "@/lib/schemas";
 import { Aviso } from "@/components/Aviso";
 import { TarjetaCita } from "@/components/TarjetaCita";
 import { SelectorNuevoHorario } from "@/components/SelectorNuevoHorario";
+import { fechaHoraLarga } from "@/lib/format";
 
 type Modo =
   | { tipo: "normal" }
@@ -49,7 +50,7 @@ export function CitaAcciones({
   const queryClient = useQueryClient();
   const { data: cita } = useQuery({
     queryKey: ["cita", appointmentId],
-    queryFn: () => api.cita(appointmentId),
+    queryFn: () => apiPublico.cita(appointmentId),
     initialData: citaInicial,
     refetchInterval: 5000,
   });
@@ -81,7 +82,7 @@ export function CitaAcciones({
     setModo({ tipo: "cancelando" });
     setError(null);
     try {
-      const actualizada = await api.actualizarCita(appointmentId, { status: "CANCELLED" });
+      const actualizada = await apiPublico.actualizarCita(appointmentId, { status: "CANCELLED" });
       guardarEnCache(actualizada);
       setModo({ tipo: "normal" });
     } catch (e) {
@@ -94,7 +95,7 @@ export function CitaAcciones({
     setModo({ tipo: "guardando_movimiento" });
     setError(null);
     try {
-      const actualizada = await api.actualizarCita(appointmentId, { scheduled_at: iso });
+      const actualizada = await apiPublico.actualizarCita(appointmentId, { scheduled_at: iso });
       guardarEnCache(actualizada);
       setModo({ tipo: "normal" });
     } catch (e) {
@@ -110,7 +111,7 @@ export function CitaAcciones({
   }
 
   return (
-    <div className="mt-6">
+    <div className="flex flex-col gap-5">
       <TarjetaCita
         scheduledAt={cita.scheduled_at}
         durationMin={cita.duration_min}
@@ -120,17 +121,13 @@ export function CitaAcciones({
       />
 
       {esTerminal && (
-        <div className="mt-4">
-          <Aviso>{MOTIVO_TERMINAL[cita.status] ?? "Esta visita ya no se puede modificar."}</Aviso>
-        </div>
+        <Aviso>{MOTIVO_TERMINAL[cita.status] ?? "Esta visita ya no se puede modificar."}</Aviso>
       )}
 
-      {!esTerminal && error && modo.tipo === "normal" && (
-        <p className="mt-4 text-sm text-red-700">{error}</p>
-      )}
+      {!esTerminal && error && modo.tipo === "normal" && <Aviso variante="error">{error}</Aviso>}
 
       {modo.tipo === "normal" && (
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+        <div className="flex flex-wrap justify-between gap-3">
           <button
             type="button"
             disabled={esTerminal}
@@ -138,9 +135,9 @@ export function CitaAcciones({
               setError(null);
               setModo({ tipo: "moviendo" });
             }}
-            className="rounded border border-neutral-300 px-4 py-3 text-center font-medium text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
+            className="btn btn-lg btn-secundario disabled:border-dashed disabled:border-borde-fuerte disabled:bg-[#f5f8f7] disabled:text-[#6c7e7b] disabled:opacity-100"
           >
-            Mover
+            Mover la visita
           </button>
           <button
             type="button"
@@ -149,45 +146,64 @@ export function CitaAcciones({
               setError(null);
               setModo({ tipo: "confirmando_cancelacion" });
             }}
-            className="rounded border border-red-300 px-4 py-3 text-center font-medium text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+            className="btn btn-lg btn-peligro disabled:border-dashed disabled:border-borde-fuerte disabled:bg-[#f5f8f7] disabled:text-[#6c7e7b] disabled:opacity-100"
           >
             Cancelar la visita
           </button>
         </div>
       )}
 
-      {modo.tipo === "confirmando_cancelacion" && (
-        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          <p>Cancelar es definitivo: no se puede deshacer ni reagendar después. ¿Confirmas?</p>
-          <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+      {(modo.tipo === "confirmando_cancelacion" || modo.tipo === "cancelando") && (
+        <section
+          role="alertdialog"
+          aria-labelledby="cancelar-titulo"
+          aria-describedby="cancelar-texto"
+          className="flex flex-col gap-3.5 rounded-3xl border-2 border-alerta bg-white p-7"
+        >
+          <h2 id="cancelar-titulo" className="font-display text-[28px] leading-tight font-bold tracking-[-0.015em]">
+            ¿Cancelar la visita del {fechaHoraLarga(cita.scheduled_at)}?
+          </h2>
+          <p id="cancelar-texto" className="max-w-[60ch] text-base leading-relaxed text-tinta-suave">
+            Cancelar es definitivo: no se puede deshacer ni reagendar después. Si solo necesitas
+            otro día, mejor muévela.
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-2.5">
             <button
               type="button"
+              autoFocus
               onClick={confirmarCancelacion}
-              className="rounded bg-red-700 px-4 py-2 text-center font-medium text-white"
+              disabled={modo.tipo === "cancelando"}
+              className="btn btn-lg btn-peligro-lleno"
             >
-              Sí, cancelar la visita
+              {modo.tipo === "cancelando" ? "Cancelando…" : "Sí, cancelar la visita"}
             </button>
             <button
               type="button"
               onClick={() => setModo({ tipo: "normal" })}
-              className="rounded border border-red-300 px-4 py-2 text-center font-medium text-red-700"
+              disabled={modo.tipo === "cancelando"}
+              className="btn btn-lg btn-secundario"
             >
-              No, mantener la cita
+              No, mantener la visita
+            </button>
+            <button
+              type="button"
+              onClick={() => setModo({ tipo: "moviendo" })}
+              disabled={modo.tipo === "cancelando"}
+              className="btn btn-lg bg-transparent text-plano underline hover:text-plano-hondo"
+            >
+              Mejor moverla
             </button>
           </div>
-        </div>
-      )}
-
-      {modo.tipo === "cancelando" && (
-        <p className="mt-4 text-sm text-neutral-500">Cancelando…</p>
+        </section>
       )}
 
       {(modo.tipo === "moviendo" || modo.tipo === "guardando_movimiento") && (
-        <div className="mt-4">
-          {error && <p className="mb-3 text-sm text-red-700">{error}</p>}
+        <section aria-label="Mover la visita" className="flex flex-col gap-4 rounded-3xl border-2 border-plano bg-white px-7 py-6">
+          {error && <Aviso variante="error">{error}</Aviso>}
           <SelectorNuevoHorario
             key={intentoMover}
             agentId={cita.agent_id}
+            horarioActual={cita.scheduled_at}
             ahoraISO={new Date().toISOString()}
             enviando={modo.tipo === "guardando_movimiento"}
             onConfirmar={confirmarNuevoHorario}
@@ -196,7 +212,7 @@ export function CitaAcciones({
               setError(null);
             }}
           />
-        </div>
+        </section>
       )}
     </div>
   );

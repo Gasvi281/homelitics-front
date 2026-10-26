@@ -30,8 +30,14 @@
  * | Inmueble con dos publicaciones (filtro property_id)| `PROPERTY_ID_DOBLE`      |
  * | Agentes de la agencia (GET /agents)               | `AGENT_ID`, `AGENT_ID_PAULA`, `AGENT_ID_ANDRES`, `AGENT_ID_INACTIVO` |
  * | Bot de la agencia (solo con `include_bots=true`)  | `AGENT_ID_BOT`            |
+ * | Tarea pendiente de Laura (PATCH de HU-11)         | `TASK_ID`                 |
+ * | Recordatorio que vence 3 min después del arranque (2.26) | `TASK_ID_POR_VENCER` |
+ * | Riesgo: creado hace 2 h, más nuevo que 24 h        | `LEAD_ID_RECIENTE`        |
+ * | Riesgo: llamada humana hace 6 h, fuera a 24 h      | `LEAD_ID_ATENDIDO`        |
+ * | Riesgo: solo le contestó el bot, sigue en riesgo   | `LEAD_ID_SOLO_BOT`        |
+ * | Riesgo: solo tiene una nota saliente, sigue en riesgo | `LEAD_ID_SOLO_NOTA`    |
  *
- * GET /leads devuelve 14 tarjetas repartidas en las seis etapas, y
+ * GET /leads devuelve 15 tarjetas repartidas en las seis etapas, y
  * POST /leads/{id}/transitions aplica las reglas del API (409 y 422) y mueve
  * `current_stage` en memoria. POST /leads/{id}/reassign (HU-08) también:
  * 403 si el rol no es TEAM_ADMIN, 404 si el destino no existe, 409 si está
@@ -43,14 +49,16 @@
  * que `slots` ya marca como ocupadas para esa semana.
  */
 import { addDays } from "date-fns";
+import { z } from "zod";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { HomeliticsError, type ErrorKind } from "../errores";
 import { TZ } from "../format";
 import { EMBUDO, destinosLegales, esTerminal, puedeMover } from "../etapas";
 import {
-  LostReason, Stage, TERMINAL_APPOINTMENT_STATUS,
+  LostReason, Stage, TaskStatus, TERMINAL_APPOINTMENT_STATUS,
   type Agent, type AgentListItem, type Appointment, type AppointmentDetail, type Feedback,
-  type Interaction, type Lead, type LeadCard, type Listing, type Task, type Transition,
+  type Interaction, type Lead, type LeadCard, type Listing, type RiesgoAgente, type RiesgoPorAgente,
+  type TareaAgencia, type Task, type Transition,
 } from "../schemas";
 
 /* ---------- ids fijos, para que capturas y demo coincidan ---------- */
@@ -83,6 +91,20 @@ const LEAD_ID_NEGOCIANDO = uuid(126);
 const LEAD_ID_GANADO = uuid(128);
 const LEAD_ID_PERDIDO = uuid(130);
 
+/*
+ * Leads en riesgo (HU-10): GET /leads/at-risk cuenta hacia atrás desde AHORA,
+ * así que estos casos se fechan respecto al arranque del mock y no a
+ * septiembre. Con 24 h: el recién llegado no está en riesgo (es más nuevo que
+ * la ventana) y el atendido tampoco (llamada humana hace 6 h); el que solo
+ * contestó el bot y el que solo tiene una nota sí lo están.
+ */
+const LEAD_ID_RECIENTE = uuid(132);
+const LEAD_ID_ATENDIDO = uuid(127);
+const LEAD_ID_SOLO_BOT = uuid(121);
+const LEAD_ID_SOLO_NOTA = uuid(123);
+const ARRANQUE = Date.now();
+const haceHoras = (h: number) => new Date(ARRANQUE - h * 3_600_000).toISOString();
+
 /* Agentes de la misma agencia (HU-08 y HU-17). `AGENT_ID` es el demo. */
 const AGENT_ID_PAULA = uuid(30);
 const AGENT_ID_ANDRES = uuid(31);
@@ -97,10 +119,24 @@ const nuevoId = () => uuid(siguienteId++);
 
 /* ---------- datos base ---------- */
 
+/**
+ * Rol del agente demo (HU-23, fase 7): `MOCK_AGENT_ROLE=AGENT` muestra la UI
+ * sin lo que es de admin (reasignar, /embudo, /riesgo). Por defecto
+ * `TEAM_ADMIN`. next.config.ts la pasa también al navegador, para que las dos
+ * mitades del mock respondan con el mismo rol.
+ */
+function rolMock(): Agent["role"] {
+  const valor = process.env.MOCK_AGENT_ROLE;
+  if (!valor) return "TEAM_ADMIN";
+  const rol = z.enum(["AGENT", "TEAM_ADMIN"]).safeParse(valor);
+  if (!rol.success) throw new Error(`MOCK_AGENT_ROLE debe ser AGENT o TEAM_ADMIN, no "${valor}".`);
+  return rol.data;
+}
+
 const agente: Agent = {
   id: AGENT_ID,
   agency_id: AGENCY_ID,
-  role: "TEAM_ADMIN",
+  role: rolMock(),
   active: true,
   full_name: "Hernando Carrillo",
   email: null,
@@ -255,6 +291,9 @@ let leads: LeadMock[] = [
     "2026-08-10T14:00:00Z", "2026-09-02T17:30:00Z", AGENT_ID_ANDRES),
   leadMock(uuid(131), uuid(151), null, LISTING_ID, "IN_APP", "LOST",
     "2026-08-20T20:10:00Z", "2026-08-27T13:00:00Z", AGENT_ID_INACTIVO),
+  /** HU-10: escribió hace 2 h y nadie le ha contestado, pero es más nuevo que la ventana de 24 h. */
+  leadMock(LEAD_ID_RECIENTE, uuid(152), "Tomás Echeverri", LISTING_ID_POBLADO, "TELEGRAM", "INTERESTED",
+    haceHoras(2), haceHoras(2), AGENT_ID_PAULA),
 ];
 
 function buscarLead(id: string): LeadMock | undefined {
@@ -375,6 +414,15 @@ let interacciones: Interaction[] = [
   // Lo que escribe el API al pasar a LOST (docs/API_CONTRACT.md, POST .../transitions).
   mensaje(212, LEAD_ID_PERDIDO, "OUTBOUND", "IN_APP", "Lost: PRICE — Consiguió uno más barato en Envigado", "2026-09-02T17:30:00Z", "STATUS_CHANGE"),
   mensaje(213, uuid(131), "OUTBOUND", "IN_APP", "Lost: NO_RESPONSE", "2026-08-27T13:00:00Z", "STATUS_CHANGE"),
+  // HU-10, relativos al arranque (ver LEAD_ID_RECIENTE).
+  mensaje(214, LEAD_ID_RECIENTE, "INBOUND", "TELEGRAM", "Hola, ¿el apartamento del Poblado tiene balcón?", haceHoras(2)),
+  // Lo escribe el bot: para el API no es respuesta y el lead sigue en riesgo.
+  {
+    ...mensaje(215, LEAD_ID_SOLO_BOT, "OUTBOUND", "TELEGRAM",
+      "Hola, soy el asistente de Homelitics. Un asesor te contacta pronto.", haceHoras(3)),
+    created_by: AGENT_ID_BOT,
+  },
+  mensaje(216, LEAD_ID_ATENDIDO, "OUTBOUND", "CALL", null, haceHoras(6), "CALL"),
 ];
 
 function mensaje(
@@ -419,15 +467,70 @@ function historialSemilla(l: LeadMock): Transition[] {
 
 let transiciones: Transition[] = leads.flatMap(historialSemilla);
 
-const tareas: Task[] = [
+const TASK_ID = uuid(16);
+/**
+ * 2.26: vence 3 minutos después de que arranca el mock. Con
+ * `NEXT_PUBLIC_USE_MOCKS=true` el mock del navegador arranca con la primera
+ * petición de la página, así que la campanita la ve aparecer sin recargar.
+ */
+const TASK_ID_POR_VENCER = uuid(20);
+
+/** Lo que guarda el mock: `TaskOut` más `source`, PROPUESTO (bloqueo 11). */
+type TareaMock = TareaAgencia;
+
+/** El `TaskOut` real sigue con siete campos: `source` solo sale en GET /tasks. */
+function aTaskOut(t: TareaMock): Task {
+  return {
+    id: t.id, lead_id: t.lead_id, agent_id: t.agent_id, status: t.status,
+    due_at: t.due_at, note: t.note, created_at: t.created_at,
+  };
+}
+
+/**
+ * En memoria: POST y PATCH de `/leads/{id}/tasks` la cambian. Las de GET
+ * /tasks (2.25) van fechadas respecto al arranque, como las de riesgo: el
+ * demo tiene tres pendientes vencidas (una sin nota, del barrido), una
+ * pospuesta vencida y una hecha que no deben salir, y una que vence a los
+ * 3 minutos; Paula tiene una vencida que tampoco es suya.
+ */
+let tareas: TareaMock[] = [
   {
-    id: uuid(16),
+    id: TASK_ID,
     lead_id: LEAD_ID,
     agent_id: AGENT_ID,
     status: "PENDING",
     due_at: "2026-09-16T20:00:00Z",
     note: "Confirmar con Laura la asistencia a la visita del jueves.",
     created_at: "2026-09-08T16:05:00Z",
+    source: "MANUAL",
+  },
+  {
+    id: uuid(17), lead_id: uuid(124), agent_id: AGENT_ID, status: "PENDING",
+    due_at: haceHoras(1), note: null, created_at: haceHoras(1), source: "SWEEP",
+  },
+  {
+    id: uuid(18), lead_id: LEAD_ID_VACIO, agent_id: AGENT_ID, status: "PENDING",
+    due_at: haceHoras(0.25), note: "Darle la bienvenida y preguntarle qué busca.",
+    created_at: haceHoras(0.5), source: "FIRST_TOUCH",
+  },
+  {
+    id: uuid(19), lead_id: LEAD_ID, agent_id: AGENT_ID, status: "SNOOZED",
+    due_at: haceHoras(5), note: "Mandarle a Laura fotos del parqueadero.",
+    created_at: haceHoras(26), source: "MANUAL",
+  },
+  {
+    id: TASK_ID_POR_VENCER, lead_id: LEAD_ID_NEGOCIANDO, agent_id: AGENT_ID, status: "PENDING",
+    due_at: new Date(ARRANQUE + 3 * 60_000).toISOString(),
+    note: "Enviarle a Daniel la contraoferta firmada.", created_at: haceHoras(2), source: "MANUAL",
+  },
+  {
+    id: uuid(21), lead_id: uuid(120), agent_id: AGENT_ID_PAULA, status: "PENDING",
+    due_at: haceHoras(4), note: null, created_at: haceHoras(4), source: "SWEEP",
+  },
+  {
+    id: uuid(22), lead_id: LEAD_ID, agent_id: AGENT_ID, status: "DONE",
+    due_at: haceHoras(30), note: "Llamar a Laura después de la visita.",
+    created_at: haceHoras(48), source: "MANUAL",
   },
 ];
 
@@ -828,7 +931,157 @@ function crearInteraccionMock(leadId: string, cuerpo: Record<string, unknown> | 
 
 function tareasDelLeadMock(leadId: string): Task[] {
   if (!buscarLead(leadId)) noEncontrado("El lead no existe o es de otra agencia.");
-  return tareas.filter(t => t.lead_id === leadId);
+  return tareas.filter(t => t.lead_id === leadId).map(aTaskOut);
+}
+
+/*
+ * Tareas (HU-11). Como en el API, el cuerpo se valida antes de buscar el lead
+ * (FastAPI corre Pydantic antes del handler): un PATCH vacío da 422 aunque el
+ * lead no exista. Los `detail` son los `msg` de Pydantic, que es lo que deja
+ * `traducirError` de un 422 real.
+ */
+
+function invalido(detail: string): never {
+  throw new HomeliticsError("invalido", detail, 422);
+}
+
+/** `null` y ausente valen lo mismo, como `datetime | None = None` en Pydantic. */
+function fechaOpcional(valor: unknown, campo: string): string | null {
+  if (valor == null) return null;
+  if (typeof valor !== "string" || Number.isNaN(Date.parse(valor))) {
+    invalido(`${campo}: Input should be a valid datetime`);
+  }
+  return valor;
+}
+
+function notaOpcional(valor: unknown): string | null {
+  if (valor == null) return null;
+  if (typeof valor !== "string") invalido("note: Input should be a valid string");
+  if (valor.length > 1000) invalido("note: String should have at most 1000 characters");
+  return valor;
+}
+
+function crearTareaMock(leadId: string, cuerpo: Record<string, unknown> | undefined): Task {
+  if (cuerpo?.due_at == null) invalido("due_at: Field required");
+  const dueAt = fechaOpcional(cuerpo.due_at, "due_at")!;
+  const nota = notaOpcional(cuerpo.note);
+  // El dueño de la tarea es el del lead, no quien la crea (services/lead.py).
+  const leadActual = buscarLead(leadId) ?? noEncontrado("El lead no existe o es de otra agencia.");
+
+  // Lo que crea un agente con POST es siempre `MANUAL` (bloqueo 11).
+  const nueva: TareaMock = {
+    id: nuevoId(), lead_id: leadId, agent_id: leadActual.agent_id,
+    status: "PENDING", due_at: dueAt, note: nota, created_at: new Date().toISOString(),
+    source: "MANUAL",
+  };
+  tareas = [...tareas, nueva];
+  return aTaskOut(nueva);
+}
+
+function actualizarTareaMock(leadId: string, taskId: string, cuerpo: Record<string, unknown> | undefined): Task {
+  const estadoCrudo = cuerpo?.status ?? null;
+  const estado = estadoCrudo === null ? null : TaskStatus.safeParse(estadoCrudo).data;
+  if (estado === undefined) invalido("status: Input should be 'PENDING', 'DONE' or 'SNOOZED'");
+  const dueAt = fechaOpcional(cuerpo?.due_at, "due_at");
+  const nota = notaOpcional(cuerpo?.note);
+  if (estado === null && dueAt === null && nota === null) {
+    // El `model_validator` de `TaskPatch`: loc ["body"], así que sin prefijo de campo.
+    invalido("Value error, provide at least one of: status, due_at, note");
+  }
+
+  if (!buscarLead(leadId)) noEncontrado("El lead no existe o es de otra agencia.");
+  const tarea = tareas.find(t => t.id === taskId && t.lead_id === leadId) ?? noEncontrado("Task not found");
+
+  // Solo pisa lo que no es null, como `patch_task` del API.
+  const actualizada: TareaMock = {
+    ...tarea,
+    status: estado ?? tarea.status,
+    due_at: dueAt ?? tarea.due_at,
+    note: nota ?? tarea.note,
+  };
+  tareas = tareas.map(t => (t.id === taskId ? actualizada : t));
+  return aTaskOut(actualizada);
+}
+
+/**
+ * PROPUESTO (2.25, bloqueo 9). GET /tasks como en docs/API_CONTRACT.md §8:
+ * toda la agencia (el mock solo tiene una, así que un `agent_id` ajeno da
+ * lista vacía), `due_at < due_before`, `due_at` ascendente y `limit` 1–200
+ * (50 por defecto). 422 con `status` fuera del enum o `due_before` sin zona.
+ * `SNOOZED` vencidas no salen con `status=PENDING` (punto abierto con L1).
+ */
+function tareasAgenciaMock(params: URLSearchParams): TareaAgencia[] {
+  const estado = params.get("status");
+  if (estado !== null && !TaskStatus.safeParse(estado).success) {
+    invalido("status: Input should be 'PENDING', 'DONE' or 'SNOOZED'");
+  }
+  const dueBefore = params.get("due_before");
+  if (dueBefore !== null && !z.string().datetime({ offset: true }).safeParse(dueBefore).success) {
+    invalido("due_before: Input should be a valid datetime with timezone");
+  }
+  const agentId = params.get("agent_id");
+  const limit = enteroDeQuery(params, "limit", 50, 1, 200);
+
+  return tareas
+    .filter(t => estado === null || t.status === estado)
+    .filter(t => dueBefore === null || Date.parse(t.due_at) < Date.parse(dueBefore))
+    .filter(t => agentId === null || t.agent_id === agentId)
+    .sort((a, b) => Date.parse(a.due_at) - Date.parse(b.due_at))
+    .slice(0, limit);
+}
+
+/* ---------- leads en riesgo (HU-10, HU-13) ---------- */
+
+/** `RESPONSE_TYPES` del API: lo único que cuenta como contestarle al cliente. */
+const TIPOS_RESPUESTA: ReadonlySet<string> = new Set(["MESSAGE", "CALL"]);
+
+/**
+ * Mismo predicado que `leads_at_risk` en services/lead.py (leído el
+ * 2026-10-13): `OUTBOUND`, `MESSAGE` o `CALL`, y que no lo escribió un
+ * `AI_AGENT`. Un `created_by` nulo cuenta como humano (allá es un outer join).
+ */
+function esRespuestaHumana(i: Interaction): boolean {
+  return i.direction === "OUTBOUND"
+    && TIPOS_RESPUESTA.has(i.type)
+    && agentes.find(a => a.id === i.created_by)?.role !== "AI_AGENT";
+}
+
+/** Un entero de la query con los límites de `Query(ge=, le=)` del API. */
+function enteroDeQuery(params: URLSearchParams, clave: string, porDefecto: number, min: number, max: number): number {
+  const crudo = params.get(clave);
+  if (crudo === null) return porDefecto;
+  const n = Number(crudo);
+  if (!crudo.trim() || !Number.isInteger(n)) {
+    invalido(`${clave}: Input should be a valid integer, unable to parse string as an integer`);
+  }
+  if (n < min) invalido(`${clave}: Input should be greater than or equal to ${min}`);
+  if (n > max) invalido(`${clave}: Input should be less than or equal to ${max}`);
+  return n;
+}
+
+/**
+ * GET /leads/at-risk. Sin `hours` usa 72 (`INACTIVITY_HOURS` del API); el
+ * front siempre lo manda. No terminales, creados antes del corte y sin
+ * respuesta humana desde el corte; más viejos primero y cortado en `limit`.
+ * Toda la agencia: el mock solo tiene una.
+ */
+function leadsEnRiesgoMock(params: URLSearchParams): Lead[] {
+  const hours = enteroDeQuery(params, "hours", 72, 1, 8760);
+  const limit = enteroDeQuery(params, "limit", 100, 1, 500);
+  return leadsSinRespuesta(hours).slice(0, limit).map(aLeadOut);
+}
+
+/** El predicado de riesgo, sin tope: más viejos primero. */
+function leadsSinRespuesta(hours: number): LeadMock[] {
+  const corte = Date.now() - hours * 3_600_000;
+  const respondidoDesdeElCorte = (leadId: string) =>
+    interacciones.some(i => i.lead_id === leadId && esRespuestaHumana(i) && Date.parse(i.occurred_at) >= corte);
+
+  return leads
+    .filter(l => !esTerminal(l.current_stage))
+    .filter(l => Date.parse(l.created_at) < corte)
+    .filter(l => !respondidoDesdeElCorte(l.id))
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
 }
 
 function enviarEncuestaMock(citaId: string, cuerpo: Record<string, unknown> | undefined): Feedback {
@@ -1021,7 +1274,7 @@ const COHORTE_HISTORICA: readonly RegistroAnalitica[] = (() => {
 })();
 
 /**
- * Los 14 leads del tablero, leídos del estado en memoria: hasta dónde llegaron
+ * Los 15 leads del tablero, leídos del estado en memoria: hasta dónde llegaron
  * sale del log de transiciones y el motivo de pérdida de su STATUS_CHANGE,
  * así que mover un lead en el tablero cambia el embudo, como en el API.
  */
@@ -1131,6 +1384,79 @@ function embudoCsvMock(embudo: ReturnType<typeof embudoMock>): string {
 }
 
 /**
+ * PROPUESTO (2.25, bloqueos 10 y 15). GET /analytics/at-risk-by-agent como
+ * en docs/API_CONTRACT.md §8: el mismo predicado que GET /leads/at-risk, sin
+ * tope, filtrado por día de creación en Bogotá (`from`/`to`) y por inmueble,
+ * agrupado por dueño. Agentes por `leads_at_risk` descendente (empate: el
+ * que tiene el lead más viejo), leads más viejos primero. 403 sin
+ * `TEAM_ADMIN`; 422 con `hours` fuera de rango, `from > to` o `format`
+ * desconocido.
+ */
+function riesgoPorAgenteMock(params: URLSearchParams, prueba: PruebaMock | undefined): RiesgoPorAgente {
+  if (rolActual(prueba) !== "TEAM_ADMIN") {
+    throw new HomeliticsError("sin_permiso", "This action requires the TEAM_ADMIN role", 403);
+  }
+  const hours = enteroDeQuery(params, "hours", 72, 1, 8760);
+  const formato = params.get("format") ?? "json";
+  if (formato !== "json" && formato !== "csv") invalido("format: Input should be 'json' or 'csv'");
+  const desde = params.get("from");
+  const hasta = params.get("to");
+  if (desde && hasta && desde > hasta) {
+    throw new HomeliticsError("invalido", "from is after to", 422);
+  }
+  const propertyId = params.get("property_id");
+
+  const porAgente = new Map<string, LeadMock[]>();
+  for (const l of leadsSinRespuesta(hours)) {
+    const dia = diaBogotaStr(new Date(l.created_at));
+    if ((desde && dia < desde) || (hasta && dia > hasta)) continue;
+    if (propertyId && buscarListing(l.listing_id)?.property_id !== propertyId) continue;
+    porAgente.set(l.agent_id, [...(porAgente.get(l.agent_id) ?? []), l]);
+  }
+
+  const grupos: RiesgoAgente[] = [...porAgente.entries()]
+    .map(([agentId, suyos]) => ({
+      agent_id: agentId,
+      full_name: agentes.find(a => a.id === agentId)?.full_name ?? null,
+      leads_at_risk: suyos.length,
+      oldest_created_at: suyos[0].created_at,
+      leads: suyos.map(aTarjeta),
+    }))
+    .sort((a, b) => b.leads_at_risk - a.leads_at_risk || a.oldest_created_at.localeCompare(b.oldest_created_at));
+
+  return {
+    hours,
+    total: grupos.reduce((suma, g) => suma + g.leads_at_risk, 0),
+    agents: grupos,
+    filters: Object.fromEntries(
+      (["from", "to", "property_id"] as const).flatMap(k => (params.get(k) ? [[k, params.get(k)!]] : [])),
+    ),
+  };
+}
+
+/** Una celda como la escribe `csv.writer`: entre comillas solo si hace falta. */
+function celdaCsv(valor: string | null): string {
+  if (valor === null) return "";
+  return /[",\r\n]/.test(valor) ? `"${valor.replace(/"/g, '""')}"` : valor;
+}
+
+/**
+ * GET /analytics/at-risk-by-agent?format=csv (PROPUESTO): una fila por lead,
+ * agrupadas por agente en el orden del JSON, con la cabecera de la propuesta.
+ */
+function riesgoPorAgenteCsvMock(reporte: RiesgoPorAgente): string {
+  const filas: (string | null)[][] = [
+    ["agent_id", "agent_name", "lead_id", "client_name", "listing_address", "current_stage", "created_at"],
+  ];
+  for (const g of reporte.agents) {
+    for (const l of g.leads) {
+      filas.push([g.agent_id, g.full_name, l.id, l.client_name, l.listing_address, l.current_stage, l.created_at]);
+    }
+  }
+  return filas.map(f => f.map(celdaCsv).join(",") + "\r\n").join("");
+}
+
+/**
  * GET /analytics/lost-reasons?days=. Solo `days` (1–730, 90 por defecto),
  * contado sobre la fecha de pérdida; sin 403, como el API.
  */
@@ -1163,7 +1489,7 @@ function motivosPerdidaMock(params: URLSearchParams) {
  * `rol: "AGENT"` cambia el rol que devuelve GET /me y hace que reasignar dé
  * 403. Ojo: el layout de (agente) lee /me en el SERVIDOR, así que desde la
  * consola del navegador solo cambia el POST (sirve para ver el 403 dentro del
- * modal); para esconder los botones de admin hay que cambiar `agente.role`.
+ * modal); para esconder los botones de admin está `MOCK_AGENT_ROLE=AGENT`.
  * `fallaAnalitica` hace fallar los GET de `/analytics/*` (HU-17) con ese
  * `kind`: `falla` solo toca escrituras y el embudo solo lee.
  */
@@ -1199,6 +1525,11 @@ export async function resolverMock(path: string, method: string = "GET", body?: 
     return searchParams.get("format") === "csv" ? embudoCsvMock(embudo) : embudo;
   }
   if (pathname === "/analytics/lost-reasons" && m === "GET") return motivosPerdidaMock(searchParams);
+  if (pathname === "/analytics/at-risk-by-agent" && m === "GET") {
+    const reporte = riesgoPorAgenteMock(searchParams, prueba);
+    return searchParams.get("format") === "csv" ? riesgoPorAgenteCsvMock(reporte) : reporte;
+  }
+  if (pathname === "/tasks" && m === "GET") return tareasAgenciaMock(searchParams);
 
   if ((match = pathname.match(/^\/listings\/([^/]+)$/)) && m === "GET") {
     return listingPorIdMock(match[1]);
@@ -1207,6 +1538,8 @@ export async function resolverMock(path: string, method: string = "GET", body?: 
     return slotsMock(match[1], searchParams);
   }
   if (pathname === "/leads" && m === "GET") return leadsMock(searchParams);
+  // Antes de `/leads/{id}`, que si no se lo come como un id.
+  if (pathname === "/leads/at-risk" && m === "GET") return leadsEnRiesgoMock(searchParams);
   if ((match = pathname.match(/^\/leads\/([^/]+)$/)) && m === "GET") {
     return leadPorIdMock(match[1]);
   }
@@ -1229,8 +1562,12 @@ export async function resolverMock(path: string, method: string = "GET", body?: 
     if (m === "GET") return interaccionesDelLeadMock(match[1]);
     if (m === "POST") return crearInteraccionMock(match[1], cuerpo);
   }
-  if ((match = pathname.match(/^\/leads\/([^/]+)\/tasks$/)) && m === "GET") {
-    return tareasDelLeadMock(match[1]);
+  if ((match = pathname.match(/^\/leads\/([^/]+)\/tasks$/))) {
+    if (m === "GET") return tareasDelLeadMock(match[1]);
+    if (m === "POST") return crearTareaMock(match[1], cuerpo);
+  }
+  if ((match = pathname.match(/^\/leads\/([^/]+)\/tasks\/([^/]+)$/)) && m === "PATCH") {
+    return actualizarTareaMock(match[1], match[2], cuerpo);
   }
   if ((match = pathname.match(/^\/appointments\/([^/]+)\/feedback$/))) {
     if (m === "POST") return enviarEncuestaMock(match[1], cuerpo);
@@ -1245,4 +1582,5 @@ export const MOCK_IDS = {
   APPOINTMENT_ID, APPOINTMENT_ID_CANCELADA, APPOINTMENT_ID_NO_COMPLETADA, APPOINTMENT_ID_COMPLETADA,
   LEAD_ID_NEGOCIANDO, LEAD_ID_GANADO, LEAD_ID_PERDIDO, PROPERTY_ID_DOBLE,
   AGENT_ID_PAULA, AGENT_ID_ANDRES, AGENT_ID_INACTIVO, AGENT_ID_BOT,
+  TASK_ID, TASK_ID_POR_VENCER, LEAD_ID_RECIENTE, LEAD_ID_ATENDIDO, LEAD_ID_SOLO_BOT, LEAD_ID_SOLO_NOTA,
 };

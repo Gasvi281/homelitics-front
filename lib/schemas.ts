@@ -277,6 +277,32 @@ export const CreateTransitionBody = z.object({
   }
 });
 
+/**
+ * POST /leads/{id}/tasks (`TaskCreate`), HU-11. Confirmado contra
+ * /openapi.json y app/schemas.py del API el 2026-10-13. El API no rechaza un
+ * `due_at` en el pasado: eso lo frena el formulario (tarea 2.19).
+ */
+export const CreateTaskBody = z.object({
+  due_at: instant,
+  note: z.string().max(1000, "La nota admite hasta 1000 caracteres.").nullable().optional(),
+});
+
+/**
+ * PATCH /leads/{id}/tasks/{task_id} (`TaskPatch`), HU-11. Replica el
+ * `model_validator` del API (`_something_to_do` en app/schemas.py, leído el
+ * 2026-10-13): al menos uno de `status`, `due_at`, `note` distinto de `null`.
+ * Para el API un `null` es "no lo toques", así que `{ note: null }` no borra
+ * la nota: da 422 igual que `{}`.
+ */
+export const PatchTaskBody = z.object({
+  status: TaskStatus.nullable().optional(),
+  due_at: instant.nullable().optional(),
+  note: z.string().max(1000, "La nota admite hasta 1000 caracteres.").nullable().optional(),
+}).refine(
+  v => v.status != null || v.due_at != null || v.note != null,
+  "Hay que cambiar al menos una cosa: estado, fecha o nota.",
+);
+
 /** Cuerpo de POST /leads/{id}/reassign (`ReassignRequest`, HU-08). */
 export const ReassignBody = z.object({
   to_agent_id: z.string().uuid("Elige un agente de la lista."),
@@ -341,6 +367,53 @@ export const LostReasonStatSchema = z.object({
   pct: z.number(),
 });
 
+/* ---------- PROPUESTO: no existe en el API (docs/API_CONTRACT.md §8) ---------- */
+
+/*
+ * PROPUESTO (tarea 2.24, bloqueos 9, 10 y 11). Nada de esto está en
+ * /openapi.json: solo lo usan el bloque F (2.25–2.27) y únicamente contra
+ * lib/mock/ (ver los interruptores en lib/interruptores.ts). Cuando L1 lo
+ * publique, se verifica contra /openapi.json, se ajusta aquí y se mueve
+ * fuera de esta sección; si la forma real difiere, manda la real.
+ */
+
+/** PROPUESTO (bloqueo 11). Quién creó la tarea; lo pone el API, nunca el front. */
+export const TaskSource = z.enum(["MANUAL", "SWEEP", "FIRST_TOUCH"]);
+
+/**
+ * PROPUESTO (bloqueos 9 y 11). Una fila de GET /tasks: `TaskOut` más
+ * `source`. No se agrega `source` a `TaskSchema` porque el `TaskOut` real
+ * sigue con siete campos y un campo obligatorio de más rompería
+ * GET /leads/{id}/tasks.
+ */
+export const TareaAgenciaSchema = TaskSchema.extend({
+  source: TaskSource,
+});
+
+/** PROPUESTO (bloqueo 10). Un agente en GET /analytics/at-risk-by-agent. */
+export const RiesgoAgenteSchema = z.object({
+  agent_id: z.string().uuid(),
+  full_name: z.string().nullable(),
+  leads_at_risk: z.number().int(),
+  oldest_created_at: instant,
+  /** Más viejos primero, como GET /leads/at-risk. */
+  leads: z.array(LeadCardSchema),
+});
+
+/**
+ * PROPUESTO (bloqueos 10 y 15). GET /analytics/at-risk-by-agent, solo
+ * `TEAM_ADMIN`. `agents` por `leads_at_risk` descendente; `total` es su
+ * suma; `filters` es el eco de la query, como en el embudo. El
+ * `last_response_at` por lead (bloqueo 15) es deseable y no va aquí hasta
+ * que exista.
+ */
+export const RiesgoPorAgenteSchema = z.object({
+  hours: z.number().int(),
+  total: z.number().int(),
+  agents: z.array(RiesgoAgenteSchema),
+  filters: z.record(z.string(), z.string()),
+});
+
 /* ---------- tipos ---------- */
 
 export type FunnelStage = z.infer<typeof FunnelStageSchema>;
@@ -361,6 +434,17 @@ export type Appointment = z.infer<typeof AppointmentSchema>;
 export type AppointmentDetail = z.infer<typeof AppointmentDetailSchema>;
 export type Interaction = z.infer<typeof InteractionSchema>;
 export type Task = z.infer<typeof TaskSchema>;
+export type TaskStatus = z.infer<typeof TaskStatus>;
+/** PROPUESTO: ver la sección de arriba. */
+export type TaskSource = z.infer<typeof TaskSource>;
+/** PROPUESTO. */
+export type TareaAgencia = z.infer<typeof TareaAgenciaSchema>;
+/** PROPUESTO. */
+export type RiesgoAgente = z.infer<typeof RiesgoAgenteSchema>;
+/** PROPUESTO. */
+export type RiesgoPorAgente = z.infer<typeof RiesgoPorAgenteSchema>;
+export type CreateTaskBody = z.input<typeof CreateTaskBody>;
+export type PatchTaskBody = z.input<typeof PatchTaskBody>;
 export type Feedback = z.infer<typeof FeedbackSchema>;
 export type AppointmentStatus = z.infer<typeof AppointmentStatus>;
 export type Channel = z.infer<typeof Channel>;

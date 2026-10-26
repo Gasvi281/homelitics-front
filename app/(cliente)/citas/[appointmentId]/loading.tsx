@@ -1,12 +1,9 @@
-export default function Cargando() {
+import { Cargando } from "@/components/Cargando";
+
+export default function CargandoPagina() {
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8">
-      <div className="rounded-lg border border-neutral-200 p-8 text-center text-sm text-neutral-500">
-        <p>Buscando tu visita…</p>
-        <p className="mt-1 text-xs text-neutral-400">
-          Puede tardar hasta un minuto la primera vez: el servicio se duerme sin uso.
-        </p>
-      </div>
-    </main>
+    <div className="mx-auto w-full max-w-[1360px] px-10 py-8">
+      <Cargando mensaje="Buscando tu visita…" />
+    </div>
   );
 }

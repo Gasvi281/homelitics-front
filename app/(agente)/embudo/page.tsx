@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import { dehydrate, HydrationBoundary, QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/homelitics";
 import { obtenerAgenteActual } from "@/lib/agente-actual";
@@ -19,9 +20,10 @@ import { ExportarEmbudo } from "@/features/embudo/components/ExportarEmbudo";
  * (app/(agente)/tablero/page.tsx): QueryClient nuevo por request, precarga
  * con las keys de features/embudo/claves.ts y `HydrationBoundary`.
  *
- * Solo `TEAM_ADMIN`. Si GET /me dice que no lo es, la página ni siquiera
- * llama al API de analítica. Si /me falló (API dormido), se intenta igual: el
- * API es la autoridad y un 403 se pinta como "sin permiso" en el cliente.
+ * Solo `TEAM_ADMIN`. Si GET /me dice que no lo es, 404 (`notFound()`) sin
+ * llamar al API de analítica. Es experiencia de usuario, no autorización: si
+ * /me falló (API dormido), se intenta igual, el API es la autoridad y un 403
+ * se pinta como "sin permiso" en el cliente.
  */
 export default async function EmbudoPage({
   searchParams,
@@ -35,14 +37,8 @@ export default async function EmbudoPage({
     agente = null;
   }
 
-  if (agente && agente.role !== "TEAM_ADMIN") {
-    return (
-      <main className="mx-auto max-w-7xl px-4 py-8">
-        <h1 className="mb-6 text-lg font-semibold text-neutral-900">Embudo de conversión</h1>
-        <Aviso>Esta vista es solo para administradores del equipo.</Aviso>
-      </main>
-    );
-  }
+  // 404 y no un aviso: misma convención del API para lo que no es tuyo (HU-23, fase 5).
+  if (agente && agente.role !== "TEAM_ADMIN") notFound();
 
   const filtros = leerFiltrosEmbudo(await searchParams);
   const invalido = rangoInvalido(filtros);
@@ -67,12 +63,12 @@ export default async function EmbudoPage({
   ]);
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-8">
+    <main className="px-9 py-8">
       <HydrationBoundary state={dehydrate(qc)}>
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-lg font-semibold text-neutral-900">Embudo de conversión</h1>
-            <p className="mt-1 text-sm text-neutral-600">
+            <h1 className="titulo-pagina">Embudo de conversión</h1>
+            <p className="mt-1 text-base text-tinta-suave">
               De los leads creados en el rango, cuántos llegaron a cada etapa y en cuál se pierden más.
             </p>
           </div>

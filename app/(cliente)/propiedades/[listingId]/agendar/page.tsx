@@ -1,7 +1,8 @@
-import { api, HomeliticsError } from "@/lib/homelitics";
+import { apiPublico, HomeliticsError } from "@/lib/homelitics";
 import { Aviso } from "@/components/Aviso";
 import { FichaPropiedad } from "@/components/FichaPropiedad";
 import { GrillaHorarios } from "@/components/GrillaHorarios";
+import { MarcoCliente, NotaAsistente } from "@/components/MarcoCliente";
 
 /**
  * Tarea 2.1 — HU-02. Elegir horario para la visita.
@@ -40,7 +41,7 @@ export default async function AgendarPage({
 
   let listing, lead;
   try {
-    [listing, lead] = await Promise.all([api.listing(listingId), api.lead(leadId)]);
+    [listing, lead] = await Promise.all([apiPublico.listing(listingId), apiPublico.lead(leadId)]);
   } catch (e) {
     return (
       <Contenedor>
@@ -58,17 +59,21 @@ export default async function AgendarPage({
   }
 
   return (
-    <Contenedor>
-      <h1 className="text-lg font-semibold text-neutral-900">Elige un horario para tu visita</h1>
+    <MarcoCliente
+      paso={1}
+      lateral={
+        <>
+          <FichaPropiedad listing={listing} />
+          <NotaAsistente>Un asesor de Homelitics confirmará tu visita apenas elijas un horario.</NotaAsistente>
+        </>
+      }
+    >
       {aviso === "conflicto" && (
-        <div className="mt-4">
-          <Aviso variante="error">
-            Alguien más tomó ese horario mientras lo confirmabas. Aquí tienes los horarios
-            actualizados.
-          </Aviso>
-        </div>
+        <Aviso variante="error">
+          <strong className="font-bold">El horario que elegiste ya no está libre.</strong> Alguien más
+          lo tomó mientras lo confirmabas. Aquí tienes los horarios actualizados.
+        </Aviso>
       )}
-      <FichaPropiedad listing={listing} />
       {/*
         El calendario es el del agente DUEÑO DEL LEAD (lead.agent_id), no el
         del listing (listing.agent_id) — normalmente coinciden, pero si el
@@ -81,12 +86,12 @@ export default async function AgendarPage({
         listingId={listingId}
         ahoraISO={new Date().toISOString()}
       />
-    </Contenedor>
+    </MarcoCliente>
   );
 }
 
 function Contenedor({ children }: { children: React.ReactNode }) {
-  return <main className="mx-auto max-w-3xl px-4 py-8">{children}</main>;
+  return <MarcoCliente paso={1}>{children}</MarcoCliente>;
 }
 
 function mensajeError(e: unknown): string {

@@ -1,10 +1,12 @@
 import { dehydrate, HydrationBoundary, QueryClient } from "@tanstack/react-query";
 import { api, HomeliticsError } from "@/lib/homelitics";
-import { fechaHoraLarga } from "@/lib/format";
+import Link from "next/link";
+import { fechaHoraLarga, formatPrecio } from "@/lib/format";
 import { Aviso } from "@/components/Aviso";
 import { EtapaLead } from "@/components/EtapaLead";
 import { ETIQUETA_CANAL } from "@/components/TarjetaCita";
 import { HistorialLead } from "@/components/HistorialLead";
+import { PanelSeguimiento } from "@/features/seguimiento/components/PanelSeguimiento";
 import {
   claveCitasLead, claveInteracciones, claveLead, claveTareasLead, claveTransiciones,
 } from "@/features/tablero-leads/claves";
@@ -22,6 +24,10 @@ import {
  * marcar el lead como perdido lo invalida y relee todo desde el navegador.
  * El log de transiciones (para saber hasta dónde llegó un lead perdido) no
  * es imprescindible: si falla, el embudo lo dice sin él y la página sigue.
+ *
+ * En la columna lateral, debajo de la etapa, va el panel de seguimiento
+ * (2.19 — HU-11): lee las mismas tareas sembradas con `claveTareasLead`, así
+ * que un recordatorio nuevo aparece en los dos.
  *
  * El nombre del cliente NO se muestra: `LeadSchema` solo trae `client_id`
  * (uuid) y el API no tiene forma de resolver un cliente a un nombre
@@ -66,31 +72,53 @@ export default async function LeadPage({
   const ubicacion = [listing.neighborhood, listing.city].filter(Boolean).join(", ");
 
   return (
-    <Contenedor>
-      <h1 className="text-lg font-semibold text-neutral-900">
-        Cliente {lead.client_id.slice(-8)}
-      </h1>
-      <p className="mt-1 text-sm text-neutral-600">
-        Interesado en {listing.address ?? ubicacion ?? "una propiedad de la agencia"}
-      </p>
-      <p className="text-sm text-neutral-500">
-        Primer contacto: {fechaHoraLarga(lead.created_at)} por {ETIQUETA_CANAL[lead.source_channel]}
-      </p>
-
+    <main className="flex flex-wrap items-stretch gap-5 px-8 py-7">
       <HydrationBoundary state={dehydrate(qc)}>
-        <div className="mt-6">
-          <EtapaLead leadInicial={lead} />
+        <div className="min-w-0 flex-[999_1_520px]">
+          <HistorialLead leadId={lead.id} />
         </div>
 
-        <h2 className="mt-8 text-base font-semibold text-neutral-900">Historial</h2>
-        <HistorialLead leadId={lead.id} />
+        <aside aria-label="Resumen del lead" className="flex min-w-0 flex-[1_1_320px] flex-col gap-4 xl:max-w-[400px]">
+          <section className="panel flex flex-col gap-5 p-6">
+            <div>
+              <Link href="/tablero" className="text-sm font-semibold">
+                Volver al tablero
+              </Link>
+              <h1 className="mt-2.5 font-display text-[28px] leading-tight font-extrabold tracking-[-0.02em]">
+                Cliente {lead.client_id.slice(-8)}
+              </h1>
+              <p className="mt-1 text-[15px] text-tinta-suave">
+                Primer contacto: {fechaHoraLarga(lead.created_at)} por {ETIQUETA_CANAL[lead.source_channel]}
+              </p>
+            </div>
+            <EtapaLead leadInicial={lead} />
+          </section>
+
+          <PanelSeguimiento leadId={lead.id} listing={listing} ahoraInicial={new Date().toISOString()} />
+
+          <section aria-labelledby="titulo-propiedad" className="panel overflow-hidden">
+            <div className="h-20 bg-hoja" aria-hidden="true" />
+            <div className="flex flex-col gap-1 px-5 py-4">
+              <h2 id="titulo-propiedad" className="text-sm text-tinta-tenue">Le interesa</h2>
+              <p className="font-display text-[19px] font-bold">
+                {listing.address ?? (ubicacion || "Una propiedad de la agencia")}
+              </p>
+              {listing.address && ubicacion && <p className="text-[15px] text-tinta-suave">{ubicacion}</p>}
+              <p className="text-[15px]">
+                {formatPrecio(listing.asking_price)}
+                {listing.area_m2 && `, ${listing.area_m2} m²`}
+                {listing.bedrooms != null && `, ${listing.bedrooms} habitaciones`}
+              </p>
+            </div>
+          </section>
+        </aside>
       </HydrationBoundary>
-    </Contenedor>
+    </main>
   );
 }
 
 function Contenedor({ children }: { children: React.ReactNode }) {
-  return <main className="mx-auto max-w-3xl px-4 py-8">{children}</main>;
+  return <main className="px-9 py-8">{children}</main>;
 }
 
 function mensajeError(e: unknown): string {

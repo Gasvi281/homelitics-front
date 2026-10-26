@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { api, HomeliticsError } from "@/lib/homelitics";
+import { apiPublico, HomeliticsError } from "@/lib/homelitics";
 import { Aviso } from "@/components/Aviso";
 import { TarjetaCita } from "@/components/TarjetaCita";
 import { ConfirmarCitaAcciones } from "@/components/ConfirmarCitaAcciones";
+import { MarcoCliente, NotaAsistente } from "@/components/MarcoCliente";
 
 /**
  * Tarea 2.2 — HU-02. Confirmar la cita elegida en la grilla (tarea 2.1).
@@ -31,7 +32,7 @@ export default async function ConfirmarPage({
       <Contenedor>
         <Aviso>
           No encontramos el horario que ibas a confirmar.{" "}
-          <Link href={`/propiedades/${listingId}/agendar${leadId ? `?leadId=${leadId}` : ""}`} className="underline">
+          <Link href={`/propiedades/${listingId}/agendar${leadId ? `?leadId=${leadId}` : ""}`} className="font-bold underline">
             Vuelve a elegir uno
           </Link>
           .
@@ -45,7 +46,7 @@ export default async function ConfirmarPage({
       <Contenedor>
         <Aviso variante="error">
           Ese horario no es válido.{" "}
-          <Link href={`/propiedades/${listingId}/agendar?leadId=${leadId}`} className="underline">
+          <Link href={`/propiedades/${listingId}/agendar?leadId=${leadId}`} className="font-bold underline">
             Vuelve a elegir uno
           </Link>
           .
@@ -56,7 +57,7 @@ export default async function ConfirmarPage({
 
   let listing, lead;
   try {
-    [listing, lead] = await Promise.all([api.listing(listingId), api.lead(leadId)]);
+    [listing, lead] = await Promise.all([apiPublico.listing(listingId), apiPublico.lead(leadId)]);
   } catch (e) {
     return (
       <Contenedor>
@@ -82,7 +83,7 @@ export default async function ConfirmarPage({
       <Contenedor>
         <Aviso variante="error">
           Ese horario ya pasó.{" "}
-          <Link href={`/propiedades/${listingId}/agendar?leadId=${leadId}`} className="underline">
+          <Link href={`/propiedades/${listingId}/agendar?leadId=${leadId}`} className="font-bold underline">
             Elige otro
           </Link>
           .
@@ -92,32 +93,35 @@ export default async function ConfirmarPage({
   }
 
   return (
-    <Contenedor>
-      <h1 className="text-lg font-semibold text-neutral-900">Confirma tu visita</h1>
+    <MarcoCliente
+      paso={2}
+      lateral={
+        <NotaAsistente>
+          Revisa que todo esté bien. Cuando pidas la visita, tu asesor queda al tanto de inmediato.
+        </NotaAsistente>
+      }
+    >
+      <h1 className="titulo-pagina">Confirma tu visita</h1>
 
-      <div className="mt-6">
-        <TarjetaCita
-          scheduledAt={horario}
-          durationMin={30}
-          direccion={listing.address}
-          canalContacto={lead.source_channel}
-        />
-      </div>
+      <TarjetaCita
+        scheduledAt={horario}
+        durationMin={30}
+        direccion={listing.address}
+        canalContacto={lead.source_channel}
+      />
 
-      <div className="mt-4">
-        <Aviso>
-          Al pedir la visita, el agente queda al tanto. Si hace falta que la confirme, te
-          avisamos por correo apenas lo haga.
-        </Aviso>
-      </div>
+      <Aviso>
+        Al pedir la visita, el agente queda al tanto. Si hace falta que la confirme, te
+        avisamos por correo apenas lo haga.
+      </Aviso>
 
       <ConfirmarCitaAcciones leadId={lead.id} listingId={listingId} horario={horario} />
-    </Contenedor>
+    </MarcoCliente>
   );
 }
 
 function Contenedor({ children }: { children: React.ReactNode }) {
-  return <main className="mx-auto max-w-3xl px-4 py-8">{children}</main>;
+  return <MarcoCliente paso={2}>{children}</MarcoCliente>;
 }
 
 function mensajeError(e: unknown): string {

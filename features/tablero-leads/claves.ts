@@ -10,7 +10,7 @@ import { leerDia, leerParam, rangoAlReves, type ParamsUrl } from "@/lib/filtros-
 import type { FiltrosLeads } from "@/lib/homelitics-nucleo";
 import type { Stage } from "@/lib/schemas";
 
-/** Lo que vive en la URL del tablero: `?etapa=&propiedad=&agente=&desde=&hasta=`. */
+/** Lo que vive en la URL del tablero: `?etapa=&propiedad=&agente=&desde=&hasta=&riesgo=`. */
 export type FiltrosTablero = {
   etapa?: Stage;
   /** `property_id`: el inmueble, con todas sus publicaciones (SALE y RENT). */
@@ -21,6 +21,12 @@ export type FiltrosTablero = {
   desde?: string;
   /** Día `YYYY-MM-DD`, inclusivo, de creación del lead. */
   hasta?: string;
+  /**
+   * `?riesgo=1` (2.16 — HU-10 AC2): solo las tarjetas en riesgo con el
+   * umbral vigente. Filtro del front: no viaja al API ni entra en la query
+   * key, porque la lista que se pide es la misma.
+   */
+  riesgo?: "1";
 };
 
 /**
@@ -61,6 +67,8 @@ export function leerFiltros(sp: ParamsUrl): FiltrosTablero {
   if (desde) f.desde = desde;
   const hasta = leerDia(sp, "hasta");
   if (hasta) f.hasta = hasta;
+  // En la vista de cerrados no hay riesgo: ningún lead terminal lo está.
+  if (leerParam(sp, "riesgo") === "1" && !esVistaCerrados(f)) f.riesgo = "1";
   return f;
 }
 
@@ -84,7 +92,9 @@ export function aFiltrosApi(f: FiltrosTablero): FiltrosLeads {
 /** Prefijo de todas las keys del tablero, sea cual sea la combinación de filtros. */
 export const PREFIJO_TABLERO = ["leads", "tablero"] as const;
 
-export function claveLeadsTablero(f: FiltrosTablero) {
+/** Sin `riesgo`: quitarlo o ponerlo no vuelve a pedir el tablero. */
+export function claveLeadsTablero({ riesgo, ...f }: FiltrosTablero) {
+  void riesgo;
   return [...PREFIJO_TABLERO, f] as const;
 }
 

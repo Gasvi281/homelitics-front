@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DndContext, DragOverlay, KeyboardSensor, PointerSensor, pointerWithin, rectIntersection,
   useDraggable, useDroppable, useSensor, useSensors,
@@ -8,9 +8,13 @@ import {
   type DragStartEvent, type KeyboardCoordinateGetter, type Over,
 } from "@dnd-kit/core";
 import { HomeliticsError } from "@/lib/homelitics-navegador";
+import { useHidratado } from "@/lib/hidratado";
 import { ETIQUETA_ETAPA, puedeMover } from "@/lib/etapas";
+import { useUmbral } from "@/lib/umbral-navegador";
+import { useLeadsEnRiesgo } from "@/features/riesgo/hooks";
 import type { LeadCard, Stage } from "@/lib/schemas";
 import { Aviso } from "@/components/Aviso";
+import { Cargando } from "@/components/Cargando";
 import { ModalPerdido } from "@/components/ModalPerdido";
 import { ETAPAS_ABIERTAS, esVistaCerrados, LIMITE_TABLERO, type FiltrosTablero } from "../claves";
 import {
@@ -39,16 +43,30 @@ import { TarjetaLead } from "./TarjetaLead";
  * Con `?etapa=WON|LOST` (2.12 — HU-09 AC2) no hay tablero sino una lista de
  * solo lectura de los cerrados, sin arrastre.
  *
+ * Leads en riesgo (2.15 — HU-10 AC3): las tarjetas que GET /leads/at-risk
+ * devuelve con el umbral vigente salen con borde rojo y una etiqueta. La
+ * consulta va aparte del tablero: si falla, el tablero sigue igual, sin
+ * resaltar, y una línea lo dice. `umbral` es lo que leyó la página con
+ * `leerUmbral()`; `useUmbral()` lo sigue si se cambia en otra parte.
+ *
+ * Con `?riesgo=1` (2.16 — HU-10 AC2) solo quedan las tarjetas en riesgo.
+ * Es un filtro del front sobre la misma lista: mientras no se sepa cuáles
+ * están en riesgo, o si esa consulta falló sin dato anterior, el tablero no
+ * se muestra a medias, lo dice.
+ *
  * Pendiente de 2.10: el menú "Mover a…" (táctil y alternativa sin arrastre).
  */
-export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
+export function TableroLeads({ filtros, umbral }: { filtros: FiltrosTablero; umbral: number }) {
   const { data: leads, error, isPending, isFetching } = useLeadsTablero(filtros);
+  const [horas] = useUmbral(umbral);
+  const riesgo = useLeadsEnRiesgo(horas, { enabled: !esVistaCerrados(filtros) });
+  const enRiesgo = new Set(riesgo.data?.map(l => l.id));
   // "Actualizando…" solo después de hidratar: si el dato precargado ya pasó
   // su `staleTime` cuando el navegador hidrata (compilación lenta, pestaña
   // oculta), useQuery relee al montar e `isFetching` es true en el primer
   // render del cliente pero false en el servidor — y React tumba la
-  // hidratación por ese <span> de más.
-  const actualizando = useHidratado() && isFetching;
+  // hidratación por ese <span> de más. Lo mismo con la consulta de riesgo.
+  const actualizando = useHidratado() && (isFetching || riesgo.isFetching);
   const moviendose = useLeadsMoviendose();
   const [aviso, setAviso] = useState<{ mensaje: string; reintentar?: MoverLead } | null>(null);
   const moverLead = useMoverLead({
@@ -71,16 +89,7 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
     }),
   );
 
-  if (isPending) {
-    return (
-      <Aviso>
-        <p>Cargando el tablero…</p>
-        <p className="mt-1 text-xs text-neutral-400">
-          Puede tardar hasta un minuto la primera vez: el servicio se duerme sin uso.
-        </p>
-      </Aviso>
-    );
-  }
+  if (isPending) return <Cargando mensaje="Cargando el tablero…" />;
   if (error && !leads) return <Aviso variante="error">{mensajeError(error)}</Aviso>;
   if (!leads) return null;
 
@@ -95,8 +104,21 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
     );
   }
 
+  const soloRiesgo = filtros.riesgo === "1";
+  if (soloRiesgo && !riesgo.data) {
+    return riesgo.error ? (
+      <Aviso variante="error">
+        No pudimos revisar qué leads llevan más de {horas} h sin respuesta. Quita el filtro de riesgo para ver el tablero.
+      </Aviso>
+    ) : (
+      <Cargando compacto mensaje={`Buscando los leads sin respuesta hace más de ${horas} h…`} />
+    );
+  }
+
   const columnas = filtros.etapa ? [filtros.etapa] : ETAPAS_ABIERTAS;
-  const porEtapa = agrupar(leads);
+  const visibles = soloRiesgo ? leads.filter(l => enRiesgo.has(l.id)) : leads;
+  const porEtapa = agrupar(visibles);
+  const visiblesEnRiesgo = leads.filter(l => enRiesgo.has(l.id)).length;
 
   function mover(vars: MoverLead) {
     setAviso(null);
@@ -123,14 +145,31 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
 
   return (
     <div>
-      <div className="mb-2 flex min-h-5 flex-wrap items-center gap-x-4 text-xs text-neutral-500">
-        <span>{leads.length === 1 ? "1 lead abierto" : `${leads.length} leads abiertos`}</span>
+      <div className="mb-3 flex min-h-5 flex-wrap items-center gap-x-4 gap-y-1 text-sm text-tinta-suave">
+        <span className="font-bold text-tinta">
+          {leads.length === 1 ? "1 lead abierto" : `${leads.length} leads abiertos`}
+        </span>
+        {(visiblesEnRiesgo > 0 || soloRiesgo) && (
+          <span className="insignia bg-alerta-claro text-alerta-hondo">
+            {visiblesEnRiesgo === 1 ? "1 sin respuesta" : `${visiblesEnRiesgo} sin respuesta`} hace más de {horas} h
+          </span>
+        )}
+        <span>Arrastra una tarjeta para cambiarla de etapa.</span>
         {actualizando && <span>Actualizando…</span>}
-        {error && <span className="text-red-700">{mensajeError(error)}</span>}
+        {error && <span className="font-semibold text-alerta-hondo">{mensajeError(error)}</span>}
+        {riesgo.error && (
+          <span>
+            {riesgo.data
+              ? "No pudimos actualizar los leads sin respuesta; el resaltado puede estar desactualizado."
+              : `No pudimos revisar qué leads llevan más de ${horas} h sin respuesta; el tablero se muestra sin ese resaltado.`}
+          </span>
+        )}
       </div>
 
+      {visibles.length > 0 && <RepartoEtapas columnas={columnas} porEtapa={porEtapa} total={visibles.length} />}
+
       {leads.length === LIMITE_TABLERO && (
-        <p className="mb-3 text-xs text-neutral-500">
+        <p className="mb-3 text-sm text-tinta-tenue">
           Se muestran los primeros {LIMITE_TABLERO} leads. Usa los filtros para ver el resto.
         </p>
       )}
@@ -139,12 +178,12 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
         <div role="alert" className="mb-4">
           <Aviso variante="error">
             <p>{aviso.mensaje}</p>
-            <div className="mt-3 flex justify-center gap-2">
+            <div className="mt-3 flex gap-2">
               {aviso.reintentar && (
                 <button
                   type="button"
                   onClick={() => mover(aviso.reintentar!)}
-                  className="rounded-md bg-red-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-800"
+                  className="btn btn-sm btn-peligro-lleno"
                 >
                   Reintentar
                 </button>
@@ -152,7 +191,7 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
               <button
                 type="button"
                 onClick={() => setAviso(null)}
-                className="rounded-md border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+                className="btn btn-sm btn-peligro"
               >
                 Cerrar aviso
               </button>
@@ -161,8 +200,12 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
         </div>
       )}
 
-      {leads.length === 0 ? (
-        <Aviso>No hay leads abiertos con estos filtros.</Aviso>
+      {visibles.length === 0 ? (
+        <Aviso>
+          {soloRiesgo
+            ? `Ningún lead lleva más de ${horas} h sin respuesta con estos filtros.`
+            : "No hay leads abiertos con estos filtros."}
+        </Aviso>
       ) : (
         <DndContext
           // Id fijo: el que genera @dnd-kit sale de un contador global que
@@ -176,7 +219,7 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
           onDragEnd={alSoltar}
           onDragCancel={() => setActivo(null)}
         >
-          <div className="-mx-4 overflow-x-auto px-4 pb-2">
+          <div className="-mx-2 overflow-x-auto px-2 pb-2">
             <div className="flex gap-4">
               {columnas.map(etapa => (
                 <Columna
@@ -185,6 +228,8 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
                   leads={porEtapa.get(etapa) ?? []}
                   activo={activo}
                   moviendose={moviendose}
+                  enRiesgo={enRiesgo}
+                  umbral={horas}
                 />
               ))}
               <ZonaGanado activo={activo} />
@@ -193,8 +238,8 @@ export function TableroLeads({ filtros }: { filtros: FiltrosTablero }) {
           <ZonaPerdido activo={activo} />
           <DragOverlay>
             {activo && (
-              <div className="rotate-1 cursor-grabbing rounded-lg shadow-lg">
-                <TarjetaLead lead={activo} />
+              <div className="rotate-1 cursor-grabbing rounded-2xl shadow-[0_16px_40px_rgba(19,48,58,0.25)]">
+                <TarjetaLead lead={activo} enRiesgo={enRiesgo.has(activo.id)} umbral={horas} />
               </div>
             )}
           </DragOverlay>
@@ -242,20 +287,22 @@ function ListaCerrados({
   const nombre = etapa === "LOST" ? "perdido" : "ganado";
   return (
     <div>
-      <div className="mb-2 flex min-h-5 flex-wrap items-center gap-x-4 text-xs text-neutral-500">
-        <span>{leads.length === 1 ? `1 lead ${nombre}` : `${leads.length} leads ${nombre}s`}</span>
+      <div className="mb-3 flex min-h-5 flex-wrap items-center gap-x-4 text-sm text-tinta-suave">
+        <span className="font-bold text-tinta">
+          {leads.length === 1 ? `1 lead ${nombre}` : `${leads.length} leads ${nombre}s`}
+        </span>
         {actualizando && <span>Actualizando…</span>}
-        {error && <span className="text-red-700">{error}</span>}
+        {error && <span className="font-semibold text-alerta-hondo">{error}</span>}
       </div>
       {leads.length === LIMITE_TABLERO && (
-        <p className="mb-3 text-xs text-neutral-500">
+        <p className="mb-3 text-sm text-tinta-tenue">
           Se muestran los primeros {LIMITE_TABLERO} leads. Usa los filtros para ver el resto.
         </p>
       )}
       {leads.length === 0 ? (
         <Aviso>No hay leads {nombre}s con estos filtros.</Aviso>
       ) : (
-        <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {leads.map(lead => (
             <li key={lead.id}>
               <TarjetaLead lead={lead} />
@@ -267,24 +314,65 @@ function ListaCerrados({
   );
 }
 
+/** Tonos de azul del embudo, del primer paso al más avanzado. */
+const TONO_ETAPA: Partial<Record<Stage, string>> = {
+  INTERESTED: "#9fb7f2",
+  VISIT_SCHEDULED: "#5f80e0",
+  VISITED: "#2448c9",
+  NEGOTIATING: "#13307e",
+};
+
+/**
+ * Barra que reparte los leads visibles entre las columnas: de un vistazo se
+ * ve dónde se acumulan. Es un resumen de lo que ya está en pantalla, no un
+ * dato nuevo; por eso basta con su texto alternativo.
+ */
+function RepartoEtapas({
+  columnas, porEtapa, total,
+}: {
+  columnas: readonly Stage[];
+  porEtapa: Map<Stage, LeadCard[]>;
+  total: number;
+}) {
+  const partes = columnas
+    .map(etapa => ({ etapa, n: porEtapa.get(etapa)?.length ?? 0 }))
+    .filter(p => p.n > 0);
+  const resumen = partes.map(p => `${p.n} en ${ETIQUETA_ETAPA[p.etapa]}`).join(", ");
+  return (
+    <div role="img" aria-label={`Reparto de los ${total} leads: ${resumen}`} className="mb-5 flex h-3 gap-1">
+      {partes.map(p => (
+        <span
+          key={p.etapa}
+          title={`${ETIQUETA_ETAPA[p.etapa]}: ${p.n}`}
+          className="h-3 first:rounded-l-full last:rounded-r-full"
+          style={{ flexGrow: p.n, backgroundColor: TONO_ETAPA[p.etapa] ?? "#2448c9" }}
+        />
+      ))}
+    </div>
+  );
+}
+
 /** Mientras se arrastra: ¿esta etapa acepta la tarjeta? `null` si no hay arrastre. */
 function acepta(activo: LeadCard | null, etapa: Stage): boolean | null {
   return activo ? puedeMover(activo.current_stage, etapa) : null;
 }
 
+/** Mientras se arrastra, las columnas válidas se marcan en azul y las demás se apagan. */
 function estiloDestino(valida: boolean | null, encima: boolean): string {
-  if (valida === null) return "bg-neutral-50";
-  if (!valida) return "bg-neutral-50 opacity-40";
-  return encima ? "bg-emerald-100 ring-2 ring-emerald-600" : "bg-emerald-50 ring-2 ring-emerald-300";
+  if (valida === null) return "bg-hoja";
+  if (!valida) return "bg-hoja opacity-40";
+  return encima ? "bg-plano-claro ring-2 ring-plano" : "bg-plano-tenue ring-2 ring-plano-borde";
 }
 
 function Columna({
-  etapa, leads, activo, moviendose,
+  etapa, leads, activo, moviendose, enRiesgo, umbral,
 }: {
   etapa: Stage;
   leads: LeadCard[];
   activo: LeadCard | null;
   moviendose: Set<string>;
+  enRiesgo: Set<string>;
+  umbral: number;
 }) {
   const valida = acepta(activo, etapa);
   const { setNodeRef, isOver } = useDroppable({ id: etapa, disabled: valida === false });
@@ -292,19 +380,26 @@ function Columna({
     <section
       ref={setNodeRef}
       aria-labelledby={`columna-${etapa}`}
-      className={`w-72 shrink-0 rounded-lg p-3 transition-[opacity,box-shadow] lg:w-auto lg:min-w-0 lg:flex-1 ${estiloDestino(valida, isOver)}`}
+      className={`w-72 shrink-0 rounded-[22px] p-3.5 transition-[opacity,box-shadow] xl:w-auto xl:min-w-0 xl:flex-1 ${estiloDestino(valida, isOver)}`}
     >
-      <h2 id={`columna-${etapa}`} className="flex items-baseline justify-between text-sm font-semibold text-neutral-900">
-        {ETIQUETA_ETAPA[etapa]}
-        <span className="text-xs font-normal text-neutral-500">{leads.length}</span>
+      <h2 id={`columna-${etapa}`} className="mx-1.5 mt-0.5 mb-1 flex items-baseline justify-between">
+        <span className="font-display text-[19px] font-bold">{ETIQUETA_ETAPA[etapa]}</span>
+        <span className="font-display text-[26px] font-extrabold">{leads.length}</span>
       </h2>
       {leads.length === 0 ? (
-        <p className="mt-3 text-xs text-neutral-400">Sin leads en esta etapa</p>
+        <p className="mt-3 rounded-2xl border-[1.5px] border-dashed border-borde-fuerte px-3 py-4 text-center text-sm text-tinta-tenue">
+          Sin leads en esta etapa
+        </p>
       ) : (
-        <ul className="mt-3 flex flex-col gap-2">
+        <ul className="mt-3 flex flex-col gap-2.5">
           {leads.map(lead => (
             <li key={lead.id}>
-              <TarjetaArrastrable lead={lead} pendiente={moviendose.has(lead.id)} />
+              <TarjetaArrastrable
+                lead={lead}
+                pendiente={moviendose.has(lead.id)}
+                enRiesgo={enRiesgo.has(lead.id)}
+                umbral={umbral}
+              />
             </li>
           ))}
         </ul>
@@ -318,7 +413,14 @@ function Columna({
  * conserva su rol (no se vuelve `role="button"`) y los eventos le llegan
  * igual por burbujeo. Una tarjeta con un movimiento en vuelo no se arrastra.
  */
-function TarjetaArrastrable({ lead, pendiente }: { lead: LeadCard; pendiente: boolean }) {
+function TarjetaArrastrable({
+  lead, pendiente, enRiesgo, umbral,
+}: {
+  lead: LeadCard;
+  pendiente: boolean;
+  enRiesgo: boolean;
+  umbral: number;
+}) {
   const { setNodeRef, listeners, attributes, isDragging } = useDraggable({
     id: lead.id,
     data: { lead },
@@ -333,6 +435,8 @@ function TarjetaArrastrable({ lead, pendiente }: { lead: LeadCard; pendiente: bo
       <TarjetaLead
         lead={lead}
         pendiente={pendiente}
+        enRiesgo={enRiesgo}
+        umbral={umbral}
         descripcion={pendiente ? undefined : attributes["aria-describedby"]}
       />
     </div>
@@ -346,12 +450,14 @@ function ZonaGanado({ activo }: { activo: LeadCard | null }) {
     <section
       ref={setNodeRef}
       aria-labelledby="zona-ganado"
-      className={`flex w-44 shrink-0 flex-col rounded-lg border-2 border-dashed border-neutral-300 p-3 transition-[opacity,box-shadow] ${estiloDestino(valida, isOver)}`}
+      className={`flex w-44 shrink-0 flex-col rounded-[22px] border-2 border-dashed p-3.5 transition-[opacity,box-shadow] ${
+        valida && isOver ? "border-montana bg-montana-claro" : valida ? "border-montana bg-[#eef7f1]" : valida === false ? "border-borde-fuerte opacity-40" : "border-borde-fuerte"
+      }`}
     >
-      <h2 id="zona-ganado" className="text-sm font-semibold text-neutral-900">
+      <h2 id="zona-ganado" className="font-display text-[19px] font-bold text-montana-hondo">
         {ETIQUETA_ETAPA.WON}
       </h2>
-      <p className="mt-3 text-xs text-neutral-500">
+      <p className="mt-2 text-sm leading-snug text-tinta-suave">
         Suelta aquí un lead en negociación para cerrarlo como ganado.
       </p>
     </section>
@@ -372,14 +478,14 @@ function ZonaPerdido({ activo }: { activo: LeadCard | null }) {
       ref={setNodeRef}
       aria-labelledby="zona-perdido"
       aria-hidden={activo ? undefined : true}
-      className={`fixed right-6 bottom-6 z-20 w-56 rounded-lg border-2 border-dashed border-red-300 p-3 shadow-lg transition-[opacity,box-shadow] ${
+      className={`fixed right-6 bottom-6 z-20 w-60 rounded-[22px] border-2 border-dashed border-alerta-borde p-4 shadow-[0_16px_40px_rgba(19,48,58,0.25)] transition-[opacity,box-shadow] ${
         activo ? "visible" : "invisible"
-      } ${valida && isOver ? "bg-red-100 ring-2 ring-red-600" : valida ? "bg-red-50 ring-2 ring-red-300" : "bg-neutral-50 opacity-60"}`}
+      } ${valida && isOver ? "bg-alerta-claro ring-2 ring-alerta" : valida ? "bg-white ring-2 ring-alerta-borde" : "bg-hoja opacity-60"}`}
     >
-      <h2 id="zona-perdido" className="text-sm font-semibold text-neutral-900">
+      <h2 id="zona-perdido" className="font-display text-[19px] font-bold text-alerta-hondo">
         {ETIQUETA_ETAPA.LOST}
       </h2>
-      <p className="mt-1 text-xs text-neutral-600">
+      <p className="mt-1 text-sm leading-snug text-tinta-suave">
         Suelta aquí para cerrarlo como perdido. Te pedimos el motivo antes de guardarlo.
       </p>
     </section>
@@ -414,31 +520,22 @@ function ConfirmarGanado({
         e.preventDefault();
         alCancelar();
       }}
-      className="m-auto w-[min(28rem,calc(100%-2rem))] rounded-lg bg-white p-6 shadow-xl backdrop:bg-black/40"
+      className="dialogo"
     >
-      <h2 id="confirmar-ganado" className="text-base font-semibold text-neutral-900">
+      <h2 id="confirmar-ganado" className="font-display text-[28px] leading-tight font-extrabold tracking-[-0.02em]">
         ¿Marcar este lead como ganado?
       </h2>
-      <p className="mt-2 text-sm text-neutral-600">
+      <p className="mt-3 text-base leading-relaxed text-tinta-suave">
         {lead.client_name ?? "El cliente sin nombre registrado"}
         {lead.listing_address ? ` (${lead.listing_address})` : ""} pasa a Ganado y sale del
         tablero activo. Es definitivo: después no se puede mover a otra etapa, y se cancelan
         sus visitas abiertas.
       </p>
-      <div className="mt-6 flex justify-end gap-2">
-        <button
-          type="button"
-          autoFocus
-          onClick={alCancelar}
-          className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
-        >
-          Cancelar
+      <div className="mt-7 flex justify-end gap-2.5">
+        <button type="button" autoFocus onClick={alCancelar} className="btn btn-secundario">
+          Volver
         </button>
-        <button
-          type="button"
-          onClick={alConfirmar}
-          className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800"
-        >
+        <button type="button" onClick={alConfirmar} className="btn btn-exito">
           Marcar como ganado
         </button>
       </div>
@@ -566,15 +663,4 @@ function mensajeError(e: unknown): string {
     default:
       return e.detail;
   }
-}
-
-const sinSuscripcion = () => () => {};
-
-/**
- * false en el servidor y durante la hidratación, true desde ahí. Con
- * useSyncExternalStore y no con un useEffect: en una navegación del lado del
- * cliente (sin hidratación) ya es true en el primer render.
- */
-function useHidratado() {
-  return useSyncExternalStore(sinSuscripcion, () => true, () => false);
 }
