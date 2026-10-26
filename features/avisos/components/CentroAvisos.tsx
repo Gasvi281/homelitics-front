@@ -10,7 +10,10 @@ import { LIMITE_RECORDATORIOS, useRecordatoriosVencidos } from "@/features/segui
 import { tiempoRelativo } from "@/lib/format";
 import { useHidratado } from "@/lib/hidratado";
 import type { NotificationOut } from "@/lib/schemas";
-import { mensajeErrorAviso, useMarcarLeido, useMarcarTodosLeidos, useResumenAvisos } from "../hooks";
+import {
+  mensajeErrorAviso, useAvisosAnteriores, useDescartarAnteriores, useMarcarLeido, useMarcarTodosLeidos,
+  useResumenAvisos,
+} from "../hooks";
 import { destinoAviso, fraseAviso } from "../texto";
 
 type Pestana = "mensajes" | "recordatorios";
@@ -62,11 +65,20 @@ function Centro({ agenteId }: { agenteId: string }) {
   const marcarUno = useMarcarLeido(agenteId, { alFallar: e => setErrorMarcar(mensajeErrorAviso(e, "uno")) });
   const marcarTodos = useMarcarTodosLeidos(agenteId, { alFallar: e => setErrorMarcar(mensajeErrorAviso(e, "todos")) });
 
+  // Punto de partida de "Ver más": el `next_before` del resumen cuando se
+  // pulsó. Queda fijo mientras el panel está abierto (ver `useAvisosAnteriores`).
+  const [desde, setDesde] = useState<number | null>(null);
+  const anteriores = useAvisosAnteriores(agenteId, desde);
+  const descartarAnteriores = useDescartarAnteriores(agenteId);
+
   const cerrar = useCallback(() => {
     setAbierta(false);
     setPestana("mensajes");
     setErrorMarcar(null);
-  }, []);
+    // Sin las páginas de "Ver más" en caché, el polling vuelve a pedir una sola.
+    setDesde(null);
+    descartarAnteriores();
+  }, [descartarAnteriores]);
 
   // Se cierra con Escape o con un clic fuera.
   useEffect(() => {
@@ -85,6 +97,14 @@ function Centro({ agenteId }: { agenteId: string }) {
     };
   }, [abierta, cerrar]);
 
+  const lista = resumen.data
+    ? [...resumen.data.items, ...(anteriores.data?.pages.flatMap(p => p.items) ?? [])]
+    : undefined;
+  const hayMas = desde === null ? resumen.data?.next_before != null : anteriores.hasNextPage;
+  const verMas = () => {
+    if (desde === null) setDesde(resumen.data?.next_before ?? null);
+    else void anteriores.fetchNextPage();
+  };
   const sinLeer = resumen.data?.unread_count ?? 0;
   const vencidos = recordatorios.data?.length ?? 0;
   const etiqueta = describir(sinLeer, vencidos);
@@ -129,7 +149,11 @@ function Centro({ agenteId }: { agenteId: string }) {
           <div role="tabpanel" id={`${idPanel}-panel-${pestana}`} aria-labelledby={`${idPanel}-tab-${pestana}`}>
             {pestana === "mensajes" ? (
               <Mensajes
-                avisos={resumen.data?.items}
+                avisos={lista}
+                hayMas={hayMas}
+                cargandoMas={anteriores.isFetching}
+                errorMas={anteriores.isError}
+                verMas={verMas}
                 sinLeer={sinLeer}
                 cargando={resumen.isPending}
                 error={errorMarcar}
@@ -201,9 +225,13 @@ function Pestanas({
 }
 
 function Mensajes({
-  avisos, sinLeer, cargando, error, marcarTodos, abrir,
+  avisos, hayMas, cargandoMas, errorMas, verMas, sinLeer, cargando, error, marcarTodos, abrir,
 }: {
   avisos: NotificationOut[] | undefined;
+  hayMas: boolean;
+  cargandoMas: boolean;
+  errorMas: boolean;
+  verMas: () => void;
   sinLeer: number;
   cargando: boolean;
   error: string | null;
@@ -235,11 +263,30 @@ function Mensajes({
       ) : avisos.length === 0 ? (
         <p className="px-4 py-6 text-sm text-tinta-tenue">No tienes avisos todavía.</p>
       ) : (
-        <ul className="max-h-96 divide-y divide-hoja overflow-y-auto">
-          {avisos.map(n => (
-            <Mensaje key={n.id} aviso={n} abrir={() => abrir(n)} />
-          ))}
-        </ul>
+        <div className="max-h-96 overflow-y-auto">
+          <ul className="divide-y divide-hoja">
+            {avisos.map(n => (
+              <Mensaje key={n.id} aviso={n} abrir={() => abrir(n)} />
+            ))}
+          </ul>
+          {errorMas && (
+            <div className="p-3">
+              <Aviso variante="error">No pudimos cargar los avisos anteriores. Intenta de nuevo.</Aviso>
+            </div>
+          )}
+          {hayMas && (
+            <div className="flex justify-center border-t border-hoja p-3">
+              <button
+                type="button"
+                onClick={verMas}
+                disabled={cargandoMas}
+                className="text-sm font-semibold text-plano-texto hover:underline disabled:cursor-wait disabled:no-underline disabled:opacity-70"
+              >
+                {cargandoMas ? "Cargando…" : "Ver más"}
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </>
   );
