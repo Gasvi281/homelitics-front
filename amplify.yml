@@ -1,0 +1,24 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - nvm install 20
+        - nvm use 20
+        - node -v
+        - npm ci
+    build:
+      commands:
+        # Públicas (Supabase)
+        - env | grep -e NEXT_PUBLIC_ >> .env.production
+        # Solo servidor: reemplaza por los nombres reales de tu inventario
+        - env | grep -e HOMELITICS_API_URL -e SERVICE_ACCOUNT_ >> .env.production
+        - npm run build
+  artifacts:
+    baseDirectory: .next
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - node_modules/**/*
+      - .next/cache/**/*
