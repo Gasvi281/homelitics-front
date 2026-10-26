@@ -1,7 +1,8 @@
 # Sprint línea 2: bandeja de avisos (notificaciones del CRM)
 
 Continúa la numeración de `docs/SPRINT_E3_LINEA2.md` (la última tarea fue la
-2.27 y el último bloqueo el 15).
+2.27 y el último bloqueo el 15). Los bloqueos de este archivo van del 16 al
+23.
 
 El CRM ya tiene una bandeja de mensajes dentro de la app
 (`homelitics-crm/docs/NOTIFICATIONS.md`, PRs #28 y #29). Cuando el bot de
@@ -142,3 +143,27 @@ dirección.
     `visit_status` del mensaje original cambia.
 20. **Recordatorios siguen en mock** (bloqueo 9): la pestaña "Recordatorios"
     del centro de avisos depende de `GET /tasks`, que no existe.
+21. **Los códigos de error de `/openapi.json` no coinciden del todo con la
+    guía** (tarea 2.28, 2026-10-25). `GET /notifications` declara su 422 como
+    `Message` (`{"detail": "..."}`), pero la guía lo da también para
+    `limit` > 20 y enums inválidos, que FastAPI valida antes de la ruta y
+    deberían salir con el array de Pydantic; `GET /me/notifications` sí lo
+    declara como `HTTPValidationError`. Además la guía dice que `/read` da
+    403 "as the bot", y ninguna ruta de `/me/notifications` declara un 403.
+    No bloquea nada: el front acepta las dos formas en todo 422 y el bot no
+    usa el front. Confirmar con L1 la forma real del 422 del monitor.
+22. **`actor_role` admite `AGENT`.** La guía dice que `actor_role` es
+    `AI_AGENT` o `TEAM_ADMIN` y que lo que hace un `AGENT` nunca genera
+    mensajes, pero `NotificationOut` en `/openapi.json` (y el tipo
+    TypeScript de la propia guía) admite `AGENT`. Preguntar a L1 cuándo
+    llega (¿un admin al que luego le quitaron el rol?) y si `by_bot=false`
+    lo incluye. Mientras tanto la regla de "Textos" lo cubre: no es
+    `AI_AGENT`, así que se usa `actor_name`, y si es nulo "Un
+    administrador".
+23. **Que reasignar notifica solo lo dice la guía.** La descripción de
+    `POST /leads/{lead_id}/reassign` en `/openapi.json` sigue diciendo
+    únicamente que cambia `lead.agent_id` y escribe `assignment_audit`; el
+    aviso `LEAD_ASSIGNED` + `REASSIGNED` sale de
+    `homelitics-crm/docs/NOTIFICATIONS.md`. Verificarlo en vivo en la
+    tarea 2.37 (reasignar un lead de prueba y mirar la bandeja del agente
+    nuevo).

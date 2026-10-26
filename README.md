@@ -411,8 +411,9 @@ En el historial de un lead abierto, `/leads/{LEAD_ID}`, el botón
 **"Reasignar"** abre un diálogo con el selector de agente. El selector no
 ofrece al dueño actual, a los desactivados ni a los bots, porque los tres
 darían 409. Al confirmar, "A cargo de" cambia y el tablero lo refleja; no
-queda línea en el historial, el agente nuevo no recibe notificación y las
-tareas abiertas se quedan con el anterior (así funciona el API).
+queda línea en el historial, el agente nuevo recibe un aviso
+(`LEAD_ASSIGNED`, ver `docs/API_CONTRACT.md`) y las tareas abiertas se quedan
+con el anterior (así funciona el API).
 
 La lista de agentes sale de `GET /agents` (`features/agentes/`), que
 también llena el filtro "Agente" del tablero y del embudo y el nombre del

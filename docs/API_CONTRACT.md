@@ -538,9 +538,16 @@ Errores (todos con la forma simple `{"detail": "..."}`, `Message`):
 
 **No escribe interacción** (verificado contra `/openapi.json` el 2026-09-27:
 solo `assignment_audit`, que el front no lee): la reasignación no aparece en
-el historial del lead ni cambia `last_interaction` de la tarjeta. Tampoco
-notifica al agente nuevo, y las tareas abiertas se quedan con el anterior
-(decisión del back, DECISIONS §20).
+el historial del lead ni cambia `last_interaction` de la tarjeta. Las tareas
+abiertas se quedan con el anterior (decisión del back, DECISIONS §20).
+
+**Corrección 2026-10-25:** este documento decía que tampoco notificaba al
+agente nuevo. Ya no es así: desde los PRs #28 y #29 del back, reasignar le
+genera al agente nuevo un aviso `LEAD_ASSIGNED` con
+`assigned_via: "REASSIGNED"` y `from_agent_id` = el dueño anterior (ver
+"Avisos" abajo). Al anterior no le llega nada (bloqueo 19). Lo dice la guía
+del back; la descripción del endpoint en `/openapi.json` no lo menciona
+(bloqueo 23).
 
 Los agentes destino salen de `GET /agents`, justo abajo.
 
@@ -668,6 +675,159 @@ ej. `23.53`).
 operación): solo `days`. La pantalla de HU-17 le pone su propio selector y lo
 dice en pantalla.
 
+### Avisos (tag `notifications`) — **tareas 2.28 a 2.37**
+Confirmado contra `/openapi.json` el 2026-10-25 (PRs #28 y #29 del back).
+Las reglas de negocio salen de la guía del back,
+`homelitics-crm/docs/NOTIFICATIONS.md`, leída el mismo día; donde
+`/openapi.json` no dice lo mismo, está anotado en los bloqueos 21 a 23 de
+`docs/SPRINT_NOTIFICACIONES_LINEA2.md`.
+
+Bandeja de mensajes dentro de la app. **Quién genera mensajes:** solo el bot
+de Telegram (`AI_AGENT`) o un `TEAM_ADMIN`, cuando le pasan trabajo a un
+agente:
+- `LEAD_ASSIGNED` + `assigned_via: "CREATED"` — el bot o un admin le abrió un
+  lead sobre uno de sus listings.
+- `LEAD_ASSIGNED` + `assigned_via: "REASSIGNED"` — un admin le reasignó un
+  lead (`POST /leads/{lead_id}/reassign`, arriba).
+- `VISIT_SCHEDULED` — el bot o un admin le agendó una visita en uno de sus
+  leads.
+
+Nadie recibe un mensaje por algo que hizo él mismo, y lo que hace un `AGENT`
+nunca genera mensajes. No hay correo, push ni websockets: el front consulta
+(cada 60 s con la pestaña visible, dice la guía). **No llegan avisos** por
+visitas movidas o canceladas, ni al dueño anterior de un lead reasignado
+(bloqueo 19); la cancelación se ve porque `visit_status` del mensaje original
+cambia.
+
+**Paginación distinta a la del resto del API** (sección 2): por cursor, no
+por `offset`. `limit` 1–**20**, por defecto 20, más nuevo primero; la
+siguiente página se pide con `before=<next_before>`.
+
+Respuesta de `GET /me/notifications` y `GET /notifications`
+(`NotificationPage`, los tres campos obligatorios):
+```json
+{ "items":[ /* NotificationOut */ ],
+  "unread_count":3,
+  "next_before":null }
+```
+- `unread_count` (entero) — no leídos que cumplen **los filtros**, contando
+  todas las páginas. En `GET /me/notifications` sin filtros es el número de
+  la campana.
+- `next_before` — `int | null`. Se pasa tal cual como `?before=` para la
+  página anterior (más vieja); `null` = no hay más.
+
+`NotificationOut` (los 21 campos están en `required`; los que no aplican al
+tipo llegan en `null`):
+```json
+{ "id":1287, "type":"VISIT_SCHEDULED", "read":false, "read_at":null,
+  "created_at":"2026-10-25T21:14:03.512Z",
+  "recipient_agent_id":"uuid", "recipient_name":"Laura Gómez",
+  "actor_agent_id":"uuid", "actor_name":"Asistente Ramírez",
+  "actor_role":"AI_AGENT",
+  "lead_id":"uuid", "client_name":"Juan Pérez",
+  "listing_address":"Cra 43A #10-25", "neighborhood":"El Poblado",
+  "assigned_via":null, "from_agent_id":null,
+  "appointment_id":"uuid", "visit_scheduled_at":"2026-10-30T15:00:00Z",
+  "visit_duration_min":60, "visit_status":"PENDING_CONFIRMATION",
+  "booked_status":"PENDING_CONFIRMATION" }
+```
+
+| Campo | Tipo | Nota |
+|---|---|---|
+| `id` | int | **Entero, no uuid.** Mayor = más nuevo. Es el que se marca leído |
+| `type` | `LEAD_ASSIGNED` \| `VISIT_SCHEDULED` | sección 5 |
+| `read` | bool | La marca de leído: `false` se dibuja como no leído |
+| `read_at` | date-time \| null | Cuándo se abrió por primera vez |
+| `created_at` | date-time | Cuándo pasó |
+| `recipient_agent_id` | uuid | Quién lo recibió (en la bandeja propia, siempre uno mismo) |
+| `recipient_name` | string \| null | |
+| `actor_agent_id` | uuid \| null | Quién lo causó |
+| `actor_name` | string \| null | |
+| `actor_role` | `AGENT` \| `TEAM_ADMIN` \| `AI_AGENT` \| null | La guía dice que solo llega `AI_AGENT` o `TEAM_ADMIN`; el esquema admite `AGENT` (bloqueo 22) |
+| `lead_id` | uuid | El lead del aviso, siempre presente |
+| `client_name` | string \| null | |
+| `listing_address` | string \| null | |
+| `neighborhood` | string \| null | |
+| `assigned_via` | `CREATED` \| `REASSIGNED` \| null | Solo `LEAD_ASSIGNED` |
+| `from_agent_id` | uuid \| null | Solo `REASSIGNED`: quién lo tenía antes |
+| `appointment_id` | uuid \| null | Solo `VISIT_SCHEDULED` |
+| `visit_scheduled_at` | date-time \| null | La visita **como está ahora**: pudo moverse desde el aviso |
+| `visit_duration_min` | int \| null | Ídem |
+| `visit_status` | estado de cita \| null | Ídem. Decide "requiere tu confirmación" |
+| `booked_status` | estado de cita \| null | Con qué estado se agendó (`PENDING_CONFIRMATION` = necesitaba confirmación; `CONFIRMED` = el bot la dejó confirmada). **No** sirve para decidir el texto |
+
+`visit_status` y `booked_status` usan el enum de estado de cita completo
+(sección 5). El API manda hechos, no frases: el texto lo arma el front (tabla
+"Textos" de `docs/SPRINT_NOTIFICACIONES_LINEA2.md`).
+
+#### `GET /me/notifications` — la bandeja propia
+Cualquier agente (y un admin, para sus propios mensajes). **Leer la lista no
+marca nada como leído.**
+
+| Parámetro | Tipo | Nota |
+|---|---|---|
+| `type` | `LEAD_ASSIGNED` \| `VISIT_SCHEDULED` | |
+| `read` | bool | `false` solo no leídos, `true` solo leídos; sin él, todos |
+| `before` | int | el `next_before` de la página anterior |
+| `limit` | int | 1–20, por defecto 20. **Más de 20 → 422** |
+
+Errores:
+- **422** — `limit` fuera de 1–20 o `type` que no es del enum (array de
+  Pydantic, `HTTPValidationError`).
+
+#### `POST /me/notifications/{notification_id}/read` → **204**
+`notification_id` es **entero**. Sin body, y responde **204 sin cuerpo**: no
+hay nada que parsear. Se llama al abrir o pulsar el mensaje. **Idempotente**:
+repetirlo no hace daño y `read_at` conserva la primera vez.
+
+Errores:
+- **404** — el mensaje no es de quien llama (o no existe). `Message`, forma
+  simple.
+- **422** — `notification_id` no es un entero (array de Pydantic).
+
+#### `POST /me/notifications/read-all`
+Sin body. Marca leídos todos los mensajes propios. Responde **200** con
+`MarkedRead`:
+```json
+{ "marked": 3 }
+```
+`marked` (entero) es cuántos se marcaron. `/openapi.json` no declara errores
+propios.
+
+#### `GET /notifications` — monitor, **solo `TEAM_ADMIN`**
+Todos los mensajes de la agencia: qué se mandó a quién, quién lo causó y si
+ya lo leyó. Misma página y mismo `NotificationOut`, más nuevo primero.
+**Mirar el monitor nunca marca nada como leído**: la marca es del
+destinatario, y los mensajes propios de un admin se marcan desde su bandeja.
+Aquí `unread_count` = no leídos que cumplen los filtros (para un
+encabezado tipo "12 sin leer").
+
+| Parámetro | Tipo | Nota |
+|---|---|---|
+| `recipient_agent_id` | uuid | quién lo recibió (ids de `GET /agents`) |
+| `actor_agent_id` | uuid | quién lo causó |
+| `by_bot` | bool | `true` causado por el bot, `false` por un admin |
+| `type` | `LEAD_ASSIGNED` \| `VISIT_SCHEDULED` | |
+| `read` | bool | `false` = "quién no lo ha visto" |
+| `lead_id` | uuid | todo lo de un lead |
+| `created_from` | `YYYY-MM-DD` | inclusivo, zona de la agencia |
+| `created_to` | `YYYY-MM-DD` | inclusivo, zona de la agencia |
+| `before` | int | como en la bandeja |
+| `limit` | int | 1–20, por defecto 20 |
+
+Errores:
+- **403** — no es `TEAM_ADMIN` (`Message`). Ocultar el enlace salvo que
+  `GET /me` diga `role: "TEAM_ADMIN"`.
+- **422** — `created_from` posterior a `created_to`, `limit` > 20 o un enum
+  inválido. `/openapi.json` lo declara como `Message` (forma simple), pero
+  los dos últimos son de validación de FastAPI y deberían llegar con el array
+  de Pydantic (bloqueo 21): aceptar las dos formas, como en todo 422
+  (sección 2). Validar antes de pedir.
+
+Comunes a los cuatro (sección 1): **401** sin token o vencido, **403** con
+token sin agente vinculado; no aparecen en `/openapi.json`, como en el resto
+del API.
+
 ## 4. Errores que sí cambian la UI
 
 | Situación | Código | Qué hace el front |
@@ -703,6 +863,8 @@ dice en pantalla.
 | Objeción | `PRICE`, `SIZE`, `LOCATION`, `CONDITION`, `HOA_FEE`, `OTHER` |
 | Rol de agente | `AGENT`, `TEAM_ADMIN` — `AgentOut` en `/openapi.json` admite también `AI_AGENT` (confirmado el 2026-09-27), pero `/me` con un token humano nunca lo devuelve: `AgentSchema` lo deja fuera y, si alguna vez llega, zod falla a propósito. `GET /agents` sí lo devuelve con `include_bots=true` o `role=AI_AGENT`, y por eso `AgentListItemSchema` lo admite. |
 | Día de la semana | `0` lunes … `6` domingo |
+| Tipo de aviso (`NotificationType`) | `LEAD_ASSIGNED`, `VISIT_SCHEDULED` — confirmado contra `/openapi.json` (`NotificationOut`, query `type`) el 2026-10-25 |
+| Origen de una asignación (`assigned_via`) | `CREATED` (el bot o un admin abrió el lead para el agente), `REASSIGNED` (un admin se lo pasó) — solo en avisos `LEAD_ASSIGNED`; en los demás llega `null`. Confirmado contra `/openapi.json` el 2026-10-25 |
 
 ## 6. Lo que el API NO tiene
 
