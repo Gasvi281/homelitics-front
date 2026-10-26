@@ -190,6 +190,19 @@ completos en `lib/mock/`. HU-23 (login del agente, etapa 2 de
 `lib/session.ts`) hecha en las fases 1 a 8 de `PLAN.md`; las pruebas manuales
 de la fase 9 están en `docs/PRUEBAS_HU23.md`.
 
+Avisos del CRM (tareas 2.28 a 2.37, `docs/SPRINT_NOTIFICACIONES_LINEA2.md`)
+hechos y probados contra el API real el 2026-10-26 con un `AGENT` y un
+`TEAM_ADMIN`. La campana del header es el **centro de avisos**
+(`features/avisos/components/CentroAvisos.tsx`, en `app/(agente)/layout.tsx`):
+pestaña "Mensajes" con `GET /me/notifications` (relee cada 60 s, pausada con
+la pestaña oculta y al volver a ella; marcar es optimista y no relee), "Ver
+más", aviso flotante de mensaje nuevo, y pestaña "Recordatorios" (la lista de
+2.26, todavía en mock). El monitor `/avisos` (solo `TEAM_ADMIN`, 404 para
+`AGENT`, enlace "Avisos enviados" en `NavAgente`) lista `GET /notifications`
+con filtros en la URL y nunca marca nada como leído. La lógica está en
+`features/avisos/` (`texto.ts`, `claves.ts`, `hooks.ts`); la relectura tras
+cualquier otra mutación vive en el `MutationCache` de `app/providers.tsx`.
+
 ## Cómo trabajar aquí
 
 - Una tarea del sprint por cambio. No mezcles 2.1 con 2.2.

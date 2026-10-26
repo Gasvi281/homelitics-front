@@ -2,7 +2,7 @@
 
 Continúa la numeración de `docs/SPRINT_E3_LINEA2.md` (la última tarea fue la
 2.27 y el último bloqueo el 15). Los bloqueos de este archivo van del 16 al
-23.
+25.
 
 El CRM ya tiene una bandeja de mensajes dentro de la app
 (`homelitics-crm/docs/NOTIFICATIONS.md`, PRs #28 y #29). Cuando el bot de
@@ -152,6 +152,11 @@ dirección.
     403 "as the bot", y ninguna ruta de `/me/notifications` declara un 403.
     No bloquea nada: el front acepta las dos formas en todo 422 y el bot no
     usa el front. Confirmar con L1 la forma real del 422 del monitor.
+    **Probado en vivo el 2026-10-26 (2.37):** llegan las dos. Rango al revés
+    → `{"detail":"created_from is after created_to"}`; `limit=21` y
+    `type=OTRO` → array de Pydantic. Sigue abierto solo como corrección de
+    `/openapi.json` (que declare `HTTPValidationError` también); pedírselo a
+    L1. El 403 de `/read` no se pudo probar (es el del bot).
 22. **`actor_role` admite `AGENT`.** La guía dice que `actor_role` es
     `AI_AGENT` o `TEAM_ADMIN` y que lo que hace un `AGENT` nunca genera
     mensajes, pero `NotificationOut` en `/openapi.json` (y el tipo
@@ -166,4 +171,19 @@ dirección.
     aviso `LEAD_ASSIGNED` + `REASSIGNED` sale de
     `homelitics-crm/docs/NOTIFICATIONS.md`. Verificarlo en vivo en la
     tarea 2.37 (reasignar un lead de prueba y mirar la bandeja del agente
-    nuevo).
+    nuevo). **Cerrado el 2026-10-26:** probado en vivo, reasignar sí
+    notifica (`LEAD_ASSIGNED` + `REASSIGNED`, `from_agent_id` = dueño
+    anterior). Queda pedirle a L1 que lo diga en la descripción del
+    endpoint, nada más.
+24. **Lo que no se pudo probar en vivo en 2.37** (solo con mocks): avisos
+    causados por el bot (`actor_role: AI_AGENT`, `assigned_via: CREATED`,
+    insignia "bot"), porque la prueba se hizo sin el bot; y 20+ sin leer,
+    "99+" y "Ver más" con una segunda página real, porque la agencia solo
+    tenía 3 avisos y generar 20 habría ensuciado la auditoría de
+    reasignaciones. Revisarlos cuando L3 agende o cree leads por el bot.
+25. **La nota del historial no relee los avisos.** `HistorialLead` guarda la
+    nota con `fetch` directo, fuera de React Query, así que el `onSuccess`
+    del `MutationCache` no la ve (las mutaciones con `useMutation`, como un
+    recordatorio, sí releen; probado en vivo). Hoy no pierde nada: nadie
+    recibe un aviso por lo que hizo él mismo. Si algún día un `AGENT`
+    genera avisos, pasar la nota a `useMutation`.

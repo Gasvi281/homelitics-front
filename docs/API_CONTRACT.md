@@ -545,9 +545,11 @@ abiertas se quedan con el anterior (decisión del back, DECISIONS §20).
 agente nuevo. Ya no es así: desde los PRs #28 y #29 del back, reasignar le
 genera al agente nuevo un aviso `LEAD_ASSIGNED` con
 `assigned_via: "REASSIGNED"` y `from_agent_id` = el dueño anterior (ver
-"Avisos" abajo). Al anterior no le llega nada (bloqueo 19). Lo dice la guía
-del back; la descripción del endpoint en `/openapi.json` no lo menciona
-(bloqueo 23).
+"Avisos" abajo). Al anterior no le llega nada (bloqueo 19). La descripción
+del endpoint en `/openapi.json` no lo menciona, pero **se confirmó contra el
+API real el 2026-10-26** (tarea 2.37): un admin reasignó dos leads y a la
+agente nueva le llegó un `LEAD_ASSIGNED` + `REASSIGNED` por cada uno, con
+`from_agent_id` = el admin, dueño anterior (bloqueo 23, cerrado).
 
 Los agentes destino salen de `GET /agents`, justo abajo.
 
@@ -820,9 +822,10 @@ Errores:
   `GET /me` diga `role: "TEAM_ADMIN"`.
 - **422** — `created_from` posterior a `created_to`, `limit` > 20 o un enum
   inválido. `/openapi.json` lo declara como `Message` (forma simple), pero
-  los dos últimos son de validación de FastAPI y deberían llegar con el array
-  de Pydantic (bloqueo 21): aceptar las dos formas, como en todo 422
-  (sección 2). Validar antes de pedir.
+  llegan las dos formas (confirmado contra el API real el 2026-10-26,
+  bloqueo 21): el rango al revés da `{"detail":"created_from is after
+  created_to"}`, y `limit=21` o `type=OTRO` dan el array de Pydantic.
+  Aceptar las dos, como en todo 422 (sección 2). Validar antes de pedir.
 
 Comunes a los cuatro (sección 1): **401** sin token o vencido, **403** con
 token sin agente vinculado; no aparecen en `/openapi.json`, como en el resto
