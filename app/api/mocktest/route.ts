@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { api, HomeliticsError } from "@/lib/homelitics";
 import { MOCK_IDS, resolverMock } from "@/lib/mock";
-import { AppointmentSchema, LeadCardSchema, LeadSchema, ListingSchema, type Lead } from "@/lib/schemas";
+import { diaLocal } from "@/lib/format";
+import {
+  AppointmentSchema, LeadCardSchema, LeadSchema, ListingSchema, NotificationPageSchema,
+  type Lead, type NotificationOut, type NotificationPage,
+} from "@/lib/schemas";
 import { PLANTILLAS, plantillaSugerida } from "@/features/plantillas/plantillas";
 import { construirContexto, rellenar } from "@/features/plantillas/rellenar";
 
@@ -126,6 +130,196 @@ function casosPlantillas() {
       rellenar("{price}", construirContexto(P_LEAD, { ...P_LISTING, asking_price: "650137717.29" }, [], null, P_AHORA)).texto,
       "$650.137.717"),
   ];
+}
+
+/** Recorre una bandeja con `next_before` hasta el final. */
+async function todasLasPaginas(pagina: (before?: number) => Promise<NotificationPage>) {
+  const items: NotificationOut[] = [];
+  const unread: number[] = [];
+  let before: number | undefined;
+  do {
+    const p = await pagina(before);
+    items.push(...p.items);
+    unread.push(p.unread_count);
+    before = p.next_before ?? undefined;
+  } while (before !== undefined);
+  return { items, unread };
+}
+
+const masNuevoPrimero = (items: NotificationOut[]) => items.every((a, i) => i === 0 || items[i - 1].id > a.id);
+const noLeidos = (items: NotificationOut[]) => items.filter(a => !a.read).length;
+
+/** Con `{ rol }` en el interruptor del mock, como "riesgo por agente como AGENT". */
+async function comoRol<T>(rol: "AGENT" | "TEAM_ADMIN", fn: () => Promise<T>): Promise<T> {
+  const g = globalThis as { __homeliticsMock?: unknown };
+  g.__homeliticsMock = { rol };
+  try {
+    return await fn();
+  } finally {
+    g.__homeliticsMock = undefined;
+  }
+}
+
+/**
+ * 2.30. Avisos. Van todos por `api` (zod) salvo los 422 que el cliente ya
+ * ataja antes de salir: esos van al mock directo para ver lo que diría el
+ * API. El orden importa: primero lecturas, después las marcas.
+ */
+async function casosAvisos() {
+  const hoy = diaLocal(new Date().toISOString());
+  const agencia = await todasLasPaginas(before => api.avisosAgencia({ before }));
+  const deOtro = agencia.items.find(a => a.recipient_agent_id !== MOCK_IDS.AGENT_ID)!;
+  const casos = [
+    await probar("avisos: página 1", async () => {
+      const p = await api.avisos();
+      return {
+        items: p.items.length, unread_count: p.unread_count, next_before: p.next_before,
+        ultimoId: p.items.at(-1)?.id, masNuevoPrimero: masNuevoPrimero(p.items),
+        todosDelDemo: p.items.every(a => a.recipient_agent_id === MOCK_IDS.AGENT_ID),
+      };
+    }),
+    await probar("avisos: página 2 con before", async () => {
+      const p1 = await api.avisos();
+      const p2 = await api.avisos({ before: p1.next_before! });
+      return {
+        items: p2.items.length, next_before: p2.next_before, unreadIgual: p2.unread_count === p1.unread_count,
+        sinRepetir: p2.items.every(a => a.id < p1.items.at(-1)!.id),
+      };
+    }),
+    await probar("avisos: limit 5 recorre todo, unread_count igual en cada página", async () => {
+      const todo = await todasLasPaginas(before => api.avisos({ limit: 5, before }));
+      return {
+        total: todo.items.length, paginas: todo.unread.length, unread: todo.unread,
+        cuadra: todo.unread.every(n => n === noLeidos(todo.items)), masNuevoPrimero: masNuevoPrimero(todo.items),
+      };
+    }),
+    await probar("avisos: type=VISIT_SCHEDULED", async () => {
+      const todo = await todasLasPaginas(before => api.avisos({ type: "VISIT_SCHEDULED", before }));
+      return { total: todo.items.length, soloEseTipo: todo.items.every(a => a.type === "VISIT_SCHEDULED"), unread: todo.unread[0] };
+    }),
+    await probar("avisos: read=false", async () => {
+      const p = await api.avisos({ read: false });
+      return { items: p.items.length, unread_count: p.unread_count, todosSinLeer: p.items.every(a => !a.read && a.read_at === null) };
+    }),
+    await probar("avisos: read=true da unread_count 0", async () => {
+      const p = await api.avisos({ read: true, limit: 3 });
+      return { items: p.items.length, unread_count: p.unread_count, todosLeidos: p.items.every(a => a.read && a.read_at !== null) };
+    }),
+    await probar("avisos: limit 21 (cliente)", () => api.avisos({ limit: 21 })),
+    await probar("avisos: limit 21 (mock directo)", () => resolverMock("/me/notifications?limit=21")),
+    await probar("avisos: limit 0 (mock directo)", () => resolverMock("/me/notifications?limit=0")),
+    await probar("avisos: type malo (mock directo)", () => resolverMock("/me/notifications?type=LEAD_LOST")),
+    await probar("avisos: read malo (mock directo)", () => resolverMock("/me/notifications?read=quizas")),
+    await probar("avisos: cobertura de la semilla (toda la agencia)", async () => {
+      const it = agencia.items;
+      const unicos = <T,>(xs: T[]) => [...new Set(xs)].sort();
+      const conCita = it.filter(a => a.appointment_id);
+      const citasDelLead = await Promise.all(conCita.map(a => api.citasDelLead(a.lead_id)));
+      return {
+        total: it.length,
+        porDestinatario: Object.fromEntries(unicos(it.map(a => a.recipient_name)).map(n => [n, it.filter(a => a.recipient_name === n).length])),
+        assigned_via: unicos(it.map(a => a.assigned_via ?? "—")),
+        reasignadosConFrom: it.filter(a => a.assigned_via === "REASSIGNED").every(a => a.from_agent_id !== null),
+        visit_status: unicos(conCita.map(a => a.visit_status!)),
+        bookedDistintoDelActual: conCita.filter(a => a.booked_status !== a.visit_status).length,
+        actor_role: unicos(it.map(a => a.actor_role ?? "—")),
+        actorNameNulo: it.filter(a => a.actor_name === null).length,
+        clientNameNulo: it.filter(a => a.client_name === null).length,
+        leidos: it.filter(a => a.read).length, noLeidos: noLeidos(it),
+        // Lo que necesita /leads/{lead_id}#cita-{appointment_id}.
+        citaEnSuLead: conCita.every((a, i) => citasDelLead[i].some(c => c.id === a.appointment_id)),
+        nulosPorTipo: it.every(a => a.type === "LEAD_ASSIGNED"
+          ? a.appointment_id === null && a.visit_status === null && a.booked_status === null && a.assigned_via !== null
+          : a.assigned_via === null && a.from_agent_id === null && a.visit_scheduled_at !== null),
+      };
+    }),
+    // Va después de "mover ok": Daniel ya es WON y su visita abierta se canceló.
+    await probar("avisos: visit_status es el de ahora, booked_status el de entonces", async () =>
+      agencia.items.filter(a => a.lead_id === MOCK_IDS.LEAD_ID_NEGOCIANDO && a.type === "VISIT_SCHEDULED")
+        .map(a => [a.booked_status, a.visit_status])),
+    // Monitor (solo TEAM_ADMIN).
+    await probar("monitor: como AGENT", () => comoRol("AGENT", () => api.avisosAgencia())),
+    await probar("monitor: como AGENT con limit 21 (403 antes que 422, mock directo)", () =>
+      comoRol("AGENT", () => resolverMock("/notifications?limit=21"))),
+    await probar("monitor: sin filtros", async () => ({
+      total: agencia.items.length, paginas: agencia.unread.length, unread_count: agencia.unread[0],
+      cuadra: agencia.unread[0] === noLeidos(agencia.items), masNuevoPrimero: masNuevoPrimero(agencia.items),
+    })),
+    ...(await Promise.all(([
+      ["monitor: de Paula", { recipient_agent_id: MOCK_IDS.AGENT_ID_PAULA }, (a: NotificationOut) => a.recipient_agent_id === MOCK_IDS.AGENT_ID_PAULA],
+      ["monitor: causados por Hernando", { actor_agent_id: MOCK_IDS.AGENT_ID }, (a: NotificationOut) => a.actor_agent_id === MOCK_IDS.AGENT_ID],
+      ["monitor: by_bot=true", { by_bot: true }, (a: NotificationOut) => a.actor_role === "AI_AGENT"],
+      ["monitor: by_bot=false", { by_bot: false }, (a: NotificationOut) => a.actor_role === "TEAM_ADMIN"],
+      ["monitor: LEAD_ASSIGNED sin leer", { type: "LEAD_ASSIGNED", read: false }, (a: NotificationOut) => a.type === "LEAD_ASSIGNED" && !a.read],
+      ["monitor: un lead", { lead_id: MOCK_IDS.LEAD_ID }, (a: NotificationOut) => a.lead_id === MOCK_IDS.LEAD_ID],
+      ["monitor: hoy (día de Bogotá)", { created_from: hoy, created_to: hoy }, (a: NotificationOut) => diaLocal(a.created_at) === hoy],
+      ["monitor: septiembre", { created_from: "2026-09-01", created_to: "2026-09-30" },
+        (a: NotificationOut) => diaLocal(a.created_at) >= "2026-09-01" && diaLocal(a.created_at) <= "2026-09-30"],
+    ] as const).map(([nombre, f, esperado]) => probar(nombre, async () => {
+      const todo = await todasLasPaginas(before => api.avisosAgencia({ ...f, before }));
+      const debian = agencia.items.filter(esperado);
+      return {
+        total: todo.items.length,
+        exacto: todo.items.length === debian.length && todo.items.every(a => esperado(a)),
+        unread_count: todo.unread[0], cuadra: todo.unread[0] === noLeidos(debian),
+      };
+    })))),
+    // 01:30 UTC del 8 de agosto todavía es 7 en Bogotá: el día se lee en hora local.
+    await probar("monitor: el 7 de agosto en hora de Bogotá", async () =>
+      (await api.avisosAgencia({ created_from: "2026-08-07", created_to: "2026-08-07" })).items.map(a => a.created_at)),
+    await probar("monitor: el 8 de agosto en hora de Bogotá (vacío)", async () =>
+      (await api.avisosAgencia({ created_from: "2026-08-08", created_to: "2026-08-08" })).items.length),
+    await probar("monitor: rango al revés (cliente)", () => api.avisosAgencia({ created_from: "2026-09-10", created_to: "2026-09-01" })),
+    await probar("monitor: rango al revés (mock directo)", () => resolverMock("/notifications?created_from=2026-09-10&created_to=2026-09-01")),
+    await probar("monitor: limit 21 (mock directo)", () => resolverMock("/notifications?limit=21")),
+    await probar("monitor: type malo (mock directo)", () => resolverMock("/notifications?type=VISIT_CANCELLED")),
+    await probar("monitor: by_bot malo (mock directo)", () => resolverMock("/notifications?by_bot=quizas")),
+    await probar("monitor: lead_id malo (mock directo)", () => resolverMock("/notifications?lead_id=123")),
+    await probar("monitor: día malo (mock directo)", () => resolverMock("/notifications?created_from=2026-13-01")),
+    await probar("monitor: forma de zod (mock directo)", async () =>
+      NotificationPageSchema.safeParse(await resolverMock("/notifications?limit=20")).success),
+  ];
+
+  // Marcas: cambian el estado, así que van al final.
+  casos.push(
+    await probar("marcar leído: 204, resta 1 y guarda read_at", async () => {
+      const antes = await api.avisos({ read: false });
+      const id = antes.items[0].id;
+      const respuesta = await api.marcarAvisoLeido(id);
+      const despues = await api.avisos();
+      const marcado = despues.items.find(a => a.id === id)!;
+      return {
+        respuesta: respuesta === undefined ? "sin cuerpo" : respuesta,
+        resta1: despues.unread_count === antes.unread_count - 1, read: marcado.read, conReadAt: marcado.read_at !== null,
+      };
+    }),
+    await probar("marcar leído dos veces: read_at conserva la primera", async () => {
+      const id = (await api.avisos({ read: true, limit: 1 })).items[0].id;
+      const primera = (await api.avisos()).items.find(a => a.id === id)?.read_at;
+      await new Promise(r => setTimeout(r, 5));
+      await api.marcarAvisoLeido(id);
+      return (await api.avisos()).items.find(a => a.id === id)?.read_at === primera;
+    }),
+    await probar("marcar leído uno ajeno", () => api.marcarAvisoLeido(deOtro.id)),
+    await probar("marcar leído uno ajeno no lo cambia", async () =>
+      (await api.avisosAgencia({ recipient_agent_id: deOtro.recipient_agent_id })).items.find(a => a.id === deOtro.id)?.read === deOtro.read),
+    await probar("marcar leído inexistente", () => api.marcarAvisoLeido(999_999)),
+    await probar("marcar leído id no entero (mock directo)", () => resolverMock("/me/notifications/abc/read", "POST")),
+    await probar("mirar el monitor no marca nada", async () => {
+      const antes = (await api.avisosAgencia()).unread_count;
+      await api.avisosAgencia({ read: false });
+      return (await api.avisosAgencia()).unread_count === antes;
+    }),
+    await probar("marcar todos: marked = los que faltaban", async () => {
+      const antes = (await api.avisos()).unread_count;
+      const { marked } = await api.marcarTodosLeidos();
+      const despues = await api.avisos();
+      const otros = await api.avisosAgencia({ recipient_agent_id: MOCK_IDS.AGENT_ID_PAULA, read: false });
+      return { antes, marked, despues: despues.unread_count, otrosIntactos: otros.unread_count > 0 };
+    }),
+    await probar("marcar todos otra vez: marked 0", () => api.marcarTodosLeidos()),
+  );
+  return casos;
 }
 
 export async function GET() {
@@ -280,5 +474,6 @@ export async function GET() {
         g.__homeliticsMock = undefined;
       }
     }),
+    ...(await casosAvisos()),
   ]);
 }
