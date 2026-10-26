@@ -73,6 +73,22 @@ export function fraseAviso(n: NotificationOut): FraseAviso {
 }
 
 /**
+ * Qué pasó, en pocas palabras, para la columna "Qué" del monitor (2.35):
+ * el tipo más `assigned_via` o la visita como está ahora. Quién lo causó y a
+ * quién le llegó van en otras columnas.
+ */
+export function queAviso(n: NotificationOut): string {
+  if (n.type === "LEAD_ASSIGNED") {
+    return n.assigned_via === "REASSIGNED" ? "Lead reasignado" : "Lead nuevo";
+  }
+  const estado = n.visit_status === null ? null
+    : n.visit_status === "PENDING_CONFIRMATION" ? "sin confirmar"
+    : n.visit_status === "CONFIRMED" ? "confirmada"
+    : ETIQUETA_VISITA[n.visit_status];
+  return estado === null ? "Visita agendada" : `Visita agendada, ${estado}`;
+}
+
+/**
  * A dónde lleva el clic. Una visita va a su entrada en el historial del lead
  * (`#cita-…`, tarea 2.34), no a `/citas/[id]`, que es la página del cliente.
  */

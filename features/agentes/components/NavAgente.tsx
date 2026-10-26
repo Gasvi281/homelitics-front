@@ -9,7 +9,7 @@ import type { Agent } from "@/lib/schemas";
 /**
  * Barra lateral de las pantallas del agente. Client Component solo por
  * `usePathname`, para marcar dónde está; los datos del agente llegan del
- * layout (GET /me). El embudo y el reporte de riesgo solo se le muestran al
+ * layout (GET /me). El embudo, el reporte de riesgo y el monitor de avisos solo se le muestran al
  * admin: las páginas dan 404 y el API 403 a quien no lo es. "Salir" llega
  * armado desde el layout porque es una Server Action.
  *
@@ -24,6 +24,7 @@ export function NavAgente({ agente, salir }: { agente: Agent | null; salir: Reac
       ? [
           { href: "/embudo", texto: "Embudo de conversión", activo: ruta.startsWith("/embudo") },
           { href: "/riesgo", texto: "Leads en riesgo", activo: ruta.startsWith("/riesgo") },
+          { href: "/avisos", texto: "Avisos enviados", activo: ruta.startsWith("/avisos") },
         ]
       : []),
   ];
