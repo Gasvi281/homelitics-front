@@ -105,6 +105,23 @@ function Centro({ agenteId }: { agenteId: string }) {
     if (desde === null) setDesde(resumen.data?.next_before ?? null);
     else void anteriores.fetchNextPage();
   };
+  // 2.36: el id más alto ya visto. La primera carga solo lo guarda; una
+  // relectura con uno mayor y sin leer saca el aviso flotante. En un ref y no
+  // en el módulo: es de este agente y de esta pestaña.
+  const mayorVisto = useRef<number | null>(null);
+  const [nuevo, setNuevo] = useState<NotificationOut | null>(null);
+  useEffect(() => {
+    const items = resumen.data?.items;
+    if (!items) return;
+    const antes = mayorVisto.current;
+    mayorVisto.current = items.reduce((mayor, a) => Math.max(mayor, a.id), antes ?? 0);
+    if (antes === null) return;
+    const masNuevo = items.filter(a => a.id > antes && !a.read).sort((a, b) => b.id - a.id)[0];
+    if (masNuevo) setNuevo(masNuevo);
+  }, [resumen.data]);
+  // Estable: si cambiara en cada render, el polling reiniciaría los 6 s.
+  const cerrarFlotante = useCallback(() => setNuevo(null), []);
+
   const sinLeer = resumen.data?.unread_count ?? 0;
   const vencidos = recordatorios.data?.length ?? 0;
   const etiqueta = describir(sinLeer, vencidos);
@@ -169,6 +186,42 @@ function Centro({ agenteId }: { agenteId: string }) {
           </div>
         </div>
       )}
+
+      {/* La región vive siempre montada: un lector de pantalla anuncia lo que entra en ella. */}
+      <div role="status" className="fixed bottom-4 right-4 z-30 w-96 max-w-[calc(100vw-2rem)]">
+        {nuevo && <AvisoFlotante key={nuevo.id} aviso={nuevo} cerrar={cerrarFlotante} />}
+      </div>
+    </div>
+  );
+}
+
+const DURACION_FLOTANTE_MS = 6_000;
+
+/** "Nuevo aviso: …" abajo a la derecha; se va solo a los 6 s o con la equis. */
+function AvisoFlotante({ aviso, cerrar }: { aviso: NotificationOut; cerrar: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(cerrar, DURACION_FLOTANTE_MS);
+    return () => clearTimeout(t);
+  }, [cerrar]);
+
+  return (
+    <div className="rounded-2xl shadow-[0_16px_40px_rgba(19,48,58,0.2)]">
+      <Aviso variante="info">
+        <div className="flex items-start gap-3">
+          <p className="min-w-0 flex-1">Nuevo aviso: {fraseAviso(aviso).frase}</p>
+          <button
+            type="button"
+            onClick={cerrar}
+            aria-label="Cerrar el aviso"
+            title="Cerrar el aviso"
+            className="-mr-2 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-white/60"
+          >
+            <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" d="M5 5l10 10M15 5L5 15" />
+            </svg>
+          </button>
+        </div>
+      </Aviso>
     </div>
   );
 }

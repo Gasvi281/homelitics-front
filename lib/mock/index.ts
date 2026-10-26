@@ -1775,10 +1775,12 @@ function avisosAgenciaMock(params: URLSearchParams, prueba: PruebaMock | undefin
  * `avisosSinLeer: true` devuelve a no leídos todos los avisos del demo (22,
  * más de una página: el caso 20+ de 2.33). Se aplica una vez y se borra,
  * para que marcar después sí se guarde.
+ * `avisoNuevo: true` le agrega al demo un `LEAD_ASSIGNED` del bot, sin leer,
+ * con el id siguiente (el aviso flotante de 2.36). También se aplica una vez.
  */
 type PruebaMock = {
   latenciaMs?: number; falla?: ErrorKind; fallaAnalitica?: ErrorKind; rol?: Agent["role"];
-  avisosSinLeer?: boolean;
+  avisosSinLeer?: boolean; avisoNuevo?: boolean;
 };
 
 export async function resolverMock(path: string, method: string = "GET", body?: string): Promise<unknown> {
@@ -1793,6 +1795,15 @@ export async function resolverMock(path: string, method: string = "GET", body?: 
   if (prueba?.avisosSinLeer) {
     delete prueba.avisosSinLeer;
     avisos = avisos.map(a => (a.recipient_agent_id === agente.id ? { ...a, read_at: null } : a));
+  }
+  if (prueba?.avisoNuevo) {
+    delete prueba.avisoNuevo;
+    const nuevo: AvisoMock = {
+      ...BOT, type: "LEAD_ASSIGNED", created_at: new Date().toISOString(), recipient_agent_id: agente.id,
+      lead_id: LEAD_ID_NEGOCIANDO, assigned_via: "CREATED", from_agent_id: null,
+      appointment_id: null, booked_status: null, id: Math.max(...avisos.map(a => a.id)) + 1, read_at: null,
+    };
+    avisos = [...avisos, nuevo];
   }
   if (prueba?.falla && m !== "GET") {
     throw prueba.falla === "red"
