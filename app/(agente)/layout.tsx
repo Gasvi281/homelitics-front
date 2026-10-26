@@ -2,9 +2,9 @@ import { redirect } from "next/navigation";
 import { Suspense, type ReactNode } from "react";
 import { salir } from "@/app/entrar/acciones";
 import { AgenteActualProvider } from "@/features/agentes/AgenteActual";
+import { CentroAvisos } from "@/features/avisos/components/CentroAvisos";
 import { NavAgente } from "@/features/agentes/components/NavAgente";
 import { AlertaRiesgo } from "@/features/riesgo/components/AlertaRiesgo";
-import { CampanaRecordatorios } from "@/features/seguimiento/components/CampanaRecordatorios";
 import { obtenerAgenteActual } from "@/lib/agente-actual";
 import { HomeliticsError } from "@/lib/errores";
 import type { Agent } from "@/lib/schemas";
@@ -31,7 +31,8 @@ import Cargando from "./loading";
  * La navegación va en la barra lateral (`NavAgente`), con el nombre del
  * agente y el botón "Salir" (AC3) al pie. Arriba del contenido, a la
  * derecha, `AlertaRiesgo` (2.16 — HU-10 AC2) con el umbral de la cookie, el
- * mismo que lee el tablero, y `CampanaRecordatorios` (2.26 — HU-11 AC2).
+ * mismo que lee el tablero, y `CentroAvisos` (2.33): los avisos del agente
+ * y sus recordatorios vencidos (2.26 — HU-11 AC2), en dos pestañas.
  */
 export default function AgenteLayout({ children }: { children: ReactNode }) {
   return (
@@ -71,7 +72,7 @@ async function ConAgente({ children }: { children: ReactNode }) {
         <div className="min-w-0 flex-1">
           <div className="flex min-h-14 items-center justify-end gap-3 px-9 pt-5 empty:hidden">
             <AlertaRiesgo umbral={umbral} />
-            <CampanaRecordatorios />
+            <CentroAvisos />
           </div>
           {children}
         </div>

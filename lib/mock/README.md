@@ -49,6 +49,7 @@ fijos (exportados como `MOCK_IDS`):
 | Motivos de pérdida (HU-17) | `GET /analytics/lost-reasons?days=`: misma cohorte, contada sobre la fecha de pérdida hacia atrás desde un "hoy" fijo (`2026-09-27`, o ahora si es más tarde). 422 con `days` fuera de 1–730. Sin 403, como el API. |
 | Error en analítica | `globalThis.__homeliticsMock = { fallaAnalitica: "red" }` (o `"servidor"`): los GET de `/analytics/*` fallan con ese `kind`. `falla` no sirve aquí porque solo toca escrituras. Ojo: la página precarga en el servidor, así que desde la consola solo se ve en lo que el navegador vuelve a pedir (cambiar los días de motivos, reintentar). |
 | Usuario sin permiso de admin | `globalThis.__homeliticsMock = { rol: "AGENT" }` en la consola del navegador: reasignar da 403 (el modal lo dice). Los botones siguen visibles porque el layout lee `/me` en el servidor; para esconderlos, `MOCK_AGENT_ROLE=AGENT` en `.env.local` y reiniciar `npm run dev`. |
+| Muchos avisos sin leer | `globalThis.__homeliticsMock = { avisosSinLeer: true }` en la consola del navegador: los 22 avisos del demo vuelven a no leídos en la siguiente petición (la campana relee cada minuto o al volver a la pestaña). Se aplica una vez y se borra sola. |
 
 Para lo que los datos solos no producen (una escritura que falla por red, un
 409 que el front no pudo prever, una respuesta lenta para ver estados

@@ -1772,9 +1772,13 @@ function avisosAgenciaMock(params: URLSearchParams, prueba: PruebaMock | undefin
  * modal); para esconder los botones de admin está `MOCK_AGENT_ROLE=AGENT`.
  * `fallaAnalitica` hace fallar los GET de `/analytics/*` (HU-17) con ese
  * `kind`: `falla` solo toca escrituras y el embudo solo lee.
+ * `avisosSinLeer: true` devuelve a no leídos todos los avisos del demo (22,
+ * más de una página: el caso 20+ de 2.33). Se aplica una vez y se borra,
+ * para que marcar después sí se guarde.
  */
 type PruebaMock = {
   latenciaMs?: number; falla?: ErrorKind; fallaAnalitica?: ErrorKind; rol?: Agent["role"];
+  avisosSinLeer?: boolean;
 };
 
 export async function resolverMock(path: string, method: string = "GET", body?: string): Promise<unknown> {
@@ -1786,6 +1790,10 @@ export async function resolverMock(path: string, method: string = "GET", body?: 
 
   const prueba = (globalThis as { __homeliticsMock?: PruebaMock }).__homeliticsMock;
   if (prueba?.latenciaMs) await new Promise(r => setTimeout(r, prueba.latenciaMs));
+  if (prueba?.avisosSinLeer) {
+    delete prueba.avisosSinLeer;
+    avisos = avisos.map(a => (a.recipient_agent_id === agente.id ? { ...a, read_at: null } : a));
+  }
   if (prueba?.falla && m !== "GET") {
     throw prueba.falla === "red"
       ? new HomeliticsError("red", "No se pudo contactar el servicio.")
