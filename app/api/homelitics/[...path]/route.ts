@@ -29,6 +29,9 @@ async function responderMock(req: NextRequest, ruta: string) {
   const cuerpo = ["GET", "HEAD"].includes(req.method) ? undefined : await req.text();
   try {
     const valor = await resolverMock(ruta, req.method, cuerpo || undefined);
+    // Un mock sin valor imita un 204: `NextResponse.json(undefined)` daría
+    // un 200 con cuerpo vacío.
+    if (valor === undefined) return new NextResponse(null, { status: 204 });
     return typeof valor === "string"
       ? new NextResponse(valor, { headers: { "Content-Type": "text/csv; charset=utf-8" } })
       : NextResponse.json(valor);

@@ -13,7 +13,7 @@ import { HomeliticsError } from "./errores";
 import {
   AgentListItemSchema, AgentSchema, AppointmentSchema, AppointmentDetailSchema, FeedbackSchema,
   FunnelSchema, InteractionSchema, LeadCardSchema, LeadSchema, ListingSchema,
-  LostReasonStatSchema, RiesgoPorAgenteSchema, SlotsSchema, TareaAgenciaSchema, TaskSchema,
+  LostReasonStatSchema, MarkedReadSchema, NotificationPageSchema, NotificationType, RiesgoPorAgenteSchema, SlotsSchema, TareaAgenciaSchema, TaskSchema,
   TaskStatus, TransitionSchema,
   CreateAppointmentBody, CreateFeedbackBody, CreateInteractionBody,
   CreateTaskBody, CreateTransitionBody, PatchAppointmentBody, PatchTaskBody, ReassignBody,
@@ -131,6 +131,51 @@ export type FiltrosRiesgoPorAgente = {
   property_id?: string;
 };
 
+/** `limit` y `before` de las dos bandejas de avisos: paginan por cursor, no por `offset`. */
+const LimiteAvisos = z.number().int("El límite va en enteros.")
+  .min(1, "El límite va de 1 a 20.").max(20, "El límite va de 1 a 20.").optional();
+const CursorAvisos = z.number().int("El cursor va en enteros.").min(1, "El cursor no es válido.").optional();
+
+/** Query de GET /me/notifications (docs/API_CONTRACT.md §3, "Avisos"). */
+export type FiltrosAvisos = {
+  type?: NotificationType;
+  /** `false` solo no leídos, `true` solo leídos; sin él, todos. */
+  read?: boolean;
+  /** El `next_before` de la página anterior. */
+  before?: number;
+  /** Entero 1–20; el API usa 20 si no se manda y responde 422 con más. */
+  limit?: number;
+};
+
+const FiltrosAvisos = z.object({
+  type: NotificationType.optional(),
+  read: z.boolean().optional(),
+  before: CursorAvisos,
+  limit: LimiteAvisos,
+});
+
+/** Query de GET /notifications, el monitor del admin. Mismos campos que la bandeja, más estos. */
+export type FiltrosAvisosAgencia = FiltrosAvisos & {
+  recipient_agent_id?: string;
+  actor_agent_id?: string;
+  /** `true` causado por el bot, `false` por un admin. */
+  by_bot?: boolean;
+  lead_id?: string;
+  /** Día `YYYY-MM-DD`, inclusivo, en la zona de la agencia. */
+  created_from?: string;
+  /** Día `YYYY-MM-DD`, inclusivo, en la zona de la agencia. */
+  created_to?: string;
+};
+
+const FiltrosAvisosAgencia = FiltrosAvisos.extend({
+  recipient_agent_id: z.string().uuid("El destinatario no es un id válido.").optional(),
+  actor_agent_id: z.string().uuid("El autor no es un id válido.").optional(),
+  by_bot: z.boolean().optional(),
+  lead_id: z.string().uuid("El lead no es un id válido.").optional(),
+  created_from: z.iso.date("La fecha inicial va como AAAA-MM-DD.").optional(),
+  created_to: z.iso.date("La fecha final va como AAAA-MM-DD.").optional(),
+});
+
 export type Pedir =<T>(path: string, schema: z.ZodType<T>, init?: RequestInit) => Promise<T>;
 
 async function traducirError(res: Response): Promise<HomeliticsError> {
@@ -246,9 +291,17 @@ export function crearPedir(opts: {
     if (opts.usarMocks || opts.mockPara?.(path)) return schema.parse(await delMock(path, init));
 
     const res = await enviar(path, init);
-    if (res.status === 204) return schema.parse(undefined);
 
-    const json = await res.json();
+    // Sin cuerpo (204, o un 200 vacío) llega como `undefined`: la operación
+    // lo declara con `z.void()`. Pasa por el mismo safeParse, así una ruta
+    // que esperaba datos y no recibió nada falla aquí con su nombre.
+    const texto = res.status === 204 ? "" : await res.text();
+    let json: unknown;
+    try {
+      json = texto === "" ? undefined : JSON.parse(texto);
+    } catch {
+      throw new HomeliticsError("servidor", `El API devolvió algo que no es JSON en ${path}.`);
+    }
     const parsed = schema.safeParse(json);
     if (!parsed.success) {
       // Falla acá y no tres pantallas más adelante. Si es real, hay que
@@ -501,5 +554,38 @@ export function crearApi({ pedir, pedirTexto }: Transporte) {
      */
     feedbackDeCita: (citaId: string) =>
       pedir(`/appointments/${citaId}/feedback`, z.array(FeedbackSchema)),
+
+    /**
+     * Tarea 2.29. La bandeja propia, más nuevo primero. Leerla no marca nada
+     * como leído. Sin filtros, `unread_count` es el número de la campana. Una
+     * query fuera de rango se rechaza aquí, sin llamar al API.
+     */
+    avisos: async (q: FiltrosAvisos = {}) =>
+      pedir(`/me/notifications?${query(validarAntes(FiltrosAvisos, q))}`, NotificationPageSchema),
+
+    /**
+     * Tarea 2.29. Responde 204 sin cuerpo. Idempotente: `read_at` conserva
+     * la primera vez. 404 (`no_encontrado`) si el aviso no es de quien llama.
+     */
+    marcarAvisoLeido: async (id: number) => {
+      const valido = validarAntes(z.number().int("El aviso no es un id válido.").min(1, "El aviso no es un id válido."), id);
+      return pedir(`/me/notifications/${valido}/read`, z.void(), { method: "POST" });
+    },
+
+    /** Tarea 2.29. Marca leídos todos los avisos propios; `marked` dice cuántos. */
+    marcarTodosLeidos: () =>
+      pedir("/me/notifications/read-all", MarkedReadSchema, { method: "POST" }),
+
+    /**
+     * Tarea 2.29. El monitor: todos los avisos de la agencia. Solo
+     * `TEAM_ADMIN` (403 → `sin_permiso`). Mirarlo nunca marca nada como
+     * leído. Una query fuera de rango o un rango al revés se rechazan aquí,
+     * sin llamar al API.
+     */
+    avisosAgencia: async (q: FiltrosAvisosAgencia = {}) => {
+      const valido = validarAntes(FiltrosAvisosAgencia, q);
+      rechazarRangoAlReves(valido.created_from, valido.created_to);
+      return pedir(`/notifications?${query(valido)}`, NotificationPageSchema);
+    },
   };
 }

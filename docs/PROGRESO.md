@@ -2326,3 +2326,7 @@ embudo y el reporte de riesgo. Sin errores de consola.
 del embudo y del riesgo (`features/*/pdf.ts`) a los colores nuevos. (`/entrar`
 se revisó levantando la app con `USE_MOCKS=false`: con mocks redirige al
 tablero.)
+
+## 2026-10-25 — 2.29: esquemas y operaciones de avisos
+
+`NotificationType`, `AssignedVia`, `NotificationSchema` (tipo `NotificationOut`, para no tapar el `Notification` del navegador), `NotificationPageSchema` y `MarkedReadSchema` en `lib/schemas.ts`; `visit_status`/`booked_status` reutilizan `AppointmentStatus` y `actor_role` el enum de `AgentListItemSchema`. En `crearApi`: `avisos(q)`, `marcarAvisoLeido(id)`, `marcarTodosLeidos()` y `avisosAgencia(q)`, con la query validada por zod antes de salir (`limit` 1–20, `before` e `id` enteros, uuids, días con `z.iso.date`, `rechazarRangoAlReves`); las dos mitades las heredan sin tocarlas. `pedir()` ya tenía una rama para el 204 pero ninguna operación la usaba: ahora toda respuesta sin cuerpo (204 o 200 vacío) llega como `undefined` por el mismo `safeParse` (la operación declara `z.void()`), y un cuerpo que no es JSON sale como `servidor` en vez de un `SyntaxError` suelto; el proxy `/api/homelitics/*` responde 204 cuando un mock forzado no devuelve nada. Probado con un `fetch` falso: el 204 da `undefined`, `limit: 21`, `limit: 0`, rango al revés, día inválido, uuid malo e id no entero fallan como `invalido` sin tocar la red. **Pendiente:** 2.30 (mocks; hoy con `USE_MOCKS=true` estas cuatro rutas no tienen mock) y probar contra el API real en 2.37.
