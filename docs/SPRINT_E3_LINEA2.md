@@ -174,6 +174,9 @@ Continúa la numeración de `docs/SPRINT_LINEA2.md` (llegó hasta el 7).
     D4) y el envío real de plantillas de HU-12 AC3 (bots, D3 y D7). Se
     presentan en la review como dependencias, no como trabajo pendiente de
     L2.
+    La bandeja dentro de la app ya existe en el API (`homelitics-crm`
+    `docs/NOTIFICATIONS.md`, PRs #28 y #29) y se trabaja en
+    `docs/SPRINT_NOTIFICACIONES_LINEA2.md`.
 14. **Sigue sin login real** (etapa 2 de `lib/session.ts`). "Mis leads en
     riesgo" y "mis recordatorios" se calculan con el agente demo de
     `.env.local`. Para probar la vista de admin hace falta ese agente en

@@ -14,6 +14,9 @@ Antes de escribir código lee, en este orden:
 3. `docs/SPRINT_E3_LINEA2.md` — **obligatorio para las tareas 2.13 en
    adelante** (épica E3: HU-10 a HU-13). Sus tareas, criterios de "done" y
    los bloqueos 8 a 14, que continúan los de `docs/SPRINT_LINEA2.md`.
+4. `docs/SPRINT_NOTIFICACIONES_LINEA2.md` — **obligatorio para las tareas
+   2.28 en adelante** (bandeja de avisos del CRM). Sus tareas, criterios de
+   "done", textos y los bloqueos 16 a 20.
 
 ## La regla que más importa
 
