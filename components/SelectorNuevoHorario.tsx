@@ -2,16 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { api, HomeliticsError } from "@/lib/homelitics-navegador";
-import { agruparSlotsPorDia, diaLocal, etiquetaDia, horaLocal, semanaHabil } from "@/lib/format";
+import { agruparSlotsPorDia, diaLocal, fechaHoraLarga, horaLocal, semanaHabil } from "@/lib/format";
+import { Aviso } from "@/components/Aviso";
+import { Cargando } from "@/components/Cargando";
+import { ColumnasHorarios, NavSemana } from "@/components/SemanaHorarios";
 
 type Estado =
   | { tipo: "cargando" }
   | { tipo: "error"; error: HomeliticsError }
   | { tipo: "listo"; slots: string[] };
-
-function capitalizar(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
 
 /**
  * Tarea 2.3. Grilla semanal para elegir el nuevo horario al "Mover" una cita
@@ -22,12 +21,15 @@ function capitalizar(s: string): string {
  */
 export function SelectorNuevoHorario({
   agentId,
+  horarioActual,
   ahoraISO,
   enviando,
   onConfirmar,
   onCancelar,
 }: {
   agentId: string;
+  /** Cuándo es la visita hoy, para decir "de … a …" antes de confirmar. */
+  horarioActual: string;
   ahoraISO: string;
   enviando: boolean;
   onConfirmar: (iso: string) => void;
@@ -67,109 +69,68 @@ export function SelectorNuevoHorario({
   const porDia = new Map(agrupados.map((g) => [g.dia, g.slots]));
 
   return (
-    <div className="rounded-lg border border-neutral-200 p-4">
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => setOffsetSemana((o) => o - 1)}
-          disabled={offsetSemana <= 0 || enviando}
-          className="rounded border border-neutral-300 px-3 py-1.5 text-sm text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          ← Semana anterior
-        </button>
-        <p className="text-sm font-medium text-neutral-700">{formatearRangoSemana(semana.dias)}</p>
-        <button
-          type="button"
-          onClick={() => setOffsetSemana((o) => o + 1)}
-          disabled={enviando}
-          className="rounded border border-neutral-300 px-3 py-1.5 text-sm text-neutral-700"
-        >
-          Semana siguiente →
-        </button>
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-display text-2xl font-bold">Elige el nuevo horario</h2>
+        <NavSemana
+          dias={semana.dias}
+          puedeAtras={offsetSemana > 0}
+          deshabilitado={enviando}
+          alAtras={() => setOffsetSemana((o) => o - 1)}
+          alAdelante={() => setOffsetSemana((o) => o + 1)}
+        />
       </div>
 
-      {estado.tipo === "cargando" && (
-        <p className="mt-4 text-center text-sm text-neutral-500">Buscando horarios disponibles…</p>
-      )}
+      {estado.tipo === "cargando" && <Cargando compacto mensaje="Buscando horarios disponibles…" />}
 
       {estado.tipo === "error" && (
-        <p className="mt-4 text-center text-sm text-red-700">
+        <Aviso variante="error">
           {estado.error.kind === "red"
             ? "No pudimos conectarnos con el servicio. Puede estar despertando, intenta de nuevo."
             : estado.error.detail}
-        </p>
+        </Aviso>
       )}
 
       {estado.tipo === "listo" && estado.slots.length === 0 && (
-        <p className="mt-4 text-center text-sm text-neutral-500">
-          No hay horarios libres esta semana. Prueba con la semana siguiente.
-        </p>
+        <Aviso>No hay horarios libres esta semana. Prueba con la semana siguiente.</Aviso>
       )}
 
       {estado.tipo === "listo" && estado.slots.length > 0 && (
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-5">
-          {semana.dias.map((diaISO) => {
-            const clave = diaLocal(diaISO);
-            const slotsDelDia = porDia.get(clave) ?? [];
-            return (
-              <div key={clave} className="rounded border border-neutral-100 p-2">
-                <p className="mb-2 text-center text-xs font-medium text-neutral-700">
-                  {capitalizar(etiquetaDia(diaISO))}
-                </p>
-                {slotsDelDia.length === 0 ? (
-                  <p className="text-center text-xs text-neutral-400">Sin horarios</p>
-                ) : (
-                  <div className="flex flex-col gap-1.5">
-                    {slotsDelDia.map((slot) => {
-                      const activo = slot === seleccionado;
-                      return (
-                        <button
-                          key={slot}
-                          type="button"
-                          disabled={enviando}
-                          onClick={() => setSeleccionado(slot)}
-                          className={
-                            "rounded border px-2 py-1 text-xs disabled:cursor-not-allowed " +
-                            (activo
-                              ? "border-neutral-900 bg-neutral-900 text-white"
-                              : "border-neutral-200 bg-white text-neutral-700 hover:border-neutral-400")
-                          }
-                        >
-                          {horaLocal(slot)}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <ColumnasHorarios
+          dias={semana.dias}
+          claveDia={diaLocal}
+          porDia={porDia}
+          seleccionado={seleccionado}
+          alElegir={setSeleccionado}
+          deshabilitado={enviando}
+        />
       )}
 
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-        <button
-          type="button"
-          disabled={!seleccionado || enviando}
-          onClick={() => seleccionado && onConfirmar(seleccionado)}
-          className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {enviando ? "Moviendo…" : "Confirmar nuevo horario"}
-        </button>
-        <button
-          type="button"
-          onClick={onCancelar}
-          disabled={enviando}
-          className="rounded border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          Cancelar
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-base">
+          {seleccionado ? (
+            <>
+              De <strong>{fechaHoraLarga(horarioActual)}</strong> a{" "}
+              <strong>{fechaHoraLarga(seleccionado)}</strong>
+            </>
+          ) : (
+            <span className="text-tinta-suave">Elige un horario para ver el cambio.</span>
+          )}
+        </p>
+        <div className="flex gap-2.5">
+          <button type="button" onClick={onCancelar} disabled={enviando} className="btn bg-transparent text-tinta underline">
+            Dejarla como estaba
+          </button>
+          <button
+            type="button"
+            disabled={!seleccionado || enviando}
+            onClick={() => seleccionado && onConfirmar(seleccionado)}
+            className="btn btn-primario"
+          >
+            {enviando ? "Moviendo…" : seleccionado ? `Mover a las ${horaLocal(seleccionado)}` : "Mover la visita"}
+          </button>
+        </div>
       </div>
     </div>
   );
-}
-
-/** "Semana del lun 15 al vie 19" a partir de los cinco días lunes-viernes. */
-function formatearRangoSemana(dias: string[]): string {
-  return `Semana del ${etiquetaDia(dias[0])} al ${etiquetaDia(dias[dias.length - 1])}`;
 }

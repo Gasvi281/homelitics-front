@@ -1,16 +1,146 @@
 @import "tailwindcss";
 
 /*
- * Sin modo oscuro todavía (no está en el alcance del sprint): se fuerza claro
- * para que los textos con colores de Tailwind pensados sobre blanco
- * (neutral-900, neutral-500...) no pierdan contraste en un sistema con
- * preferencia oscura.
+ * Sistema visual "B + C": conversa como un asesor, cuenta como un analista.
+ * Azul Plano para acciones y datos, verde Montaña para lo que salió bien,
+ * Sol para lo elegido, Atención para riesgo y espera, sobre fondo Neblina.
+ *
+ * Los colores viven aquí como tokens de Tailwind (`bg-plano`, `text-tinta`…).
+ * Usa siempre estos nombres y no los grises o rojos de fábrica: así un
+ * cambio de marca se hace en un solo lugar.
+ *
+ * Sin modo oscuro todavía (no está en el alcance del sprint): se fuerza claro.
  */
+@theme {
+  --font-sans: var(--font-figtree), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-bricolage), var(--font-figtree), ui-sans-serif, system-ui, sans-serif;
+
+  /* Texto y marco */
+  --color-tinta: #13303a;
+  --color-tinta-suave: #3a5157;
+  --color-tinta-tenue: #4e625f;
+  --color-tinta-hondo: #1f4350;
+  --color-sobre-tinta: #c5d5d3;
+
+  /* Fondos y bordes */
+  --color-neblina: #eef3f1;
+  --color-hoja: #e3eae7;
+  --color-borde: #d6e0dc;
+  --color-borde-fuerte: #c9d6d1;
+
+  /* Plano: acciones y datos */
+  --color-plano: #2448c9;
+  --color-plano-hondo: #1a3596;
+  --color-plano-claro: #e3e9fb;
+  --color-plano-tenue: #f3f6fd;
+  --color-plano-borde: #9fb7f2;
+  --color-plano-texto: #1d3a9e;
+
+  /* Montaña: lo que salió bien */
+  --color-montana: #1e6b45;
+  --color-montana-hondo: #165536;
+  --color-montana-claro: #ddefe3;
+
+  /* Sol: lo elegido */
+  --color-sol: #ffc83d;
+  --color-sol-claro: #fff1c7;
+  --color-sol-texto: #6b4a00;
+
+  /* Atención: riesgo, espera y acciones definitivas */
+  --color-alerta: #b4530a;
+  --color-alerta-hondo: #96400a;
+  --color-alerta-claro: #fbe4da;
+  --color-alerta-borde: #e7c3a8;
+
+  --animate-pulso: pulso 1.4s ease-in-out infinite;
+  @keyframes pulso {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 1; }
+  }
+}
+
 :root {
   color-scheme: light;
 }
 
 body {
-  background-color: #ffffff;
-  color: #171717;
+  background-color: var(--color-neblina);
+  color: var(--color-tinta);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Foco visible en todo lo interactivo, también dentro de los diálogos. */
+:focus-visible {
+  outline: 3px solid var(--color-plano);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/*
+ * Piezas que se repiten en todas las pantallas. Son clases y no componentes
+ * porque se aplican a <button>, <a> y <Link> por igual.
+ */
+@layer components {
+  .btn {
+    @apply inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full px-5 text-[15px] font-bold whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-45;
+  }
+  .btn-lg {
+    @apply h-13 px-7 text-base;
+  }
+  .btn-sm {
+    @apply h-9 px-4 text-sm;
+  }
+  .btn-primario {
+    @apply bg-plano text-white hover:bg-plano-hondo;
+  }
+  .btn-secundario {
+    @apply border-[1.5px] border-tinta bg-white text-tinta hover:bg-neblina;
+  }
+  .btn-suave {
+    @apply border-[1.5px] border-borde-fuerte bg-white text-tinta hover:border-tinta;
+  }
+  .btn-peligro {
+    @apply border-[1.5px] border-alerta-borde bg-white text-alerta-hondo hover:bg-alerta-claro;
+  }
+  .btn-peligro-lleno {
+    @apply bg-alerta text-white hover:bg-alerta-hondo;
+  }
+  .btn-exito {
+    @apply bg-montana text-white hover:bg-montana-hondo;
+  }
+
+  .etiqueta {
+    @apply block text-sm font-bold text-tinta;
+  }
+  .campo {
+    @apply mt-1.5 h-11 w-full rounded-xl border-[1.5px] border-borde-fuerte bg-white px-3.5 text-[15px] font-medium text-tinta placeholder:text-tinta-tenue/70 disabled:opacity-60;
+  }
+  textarea.campo {
+    @apply h-auto py-3 leading-relaxed;
+  }
+
+  .panel {
+    @apply rounded-3xl border border-borde bg-white;
+  }
+
+  .insignia {
+    @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-bold whitespace-nowrap;
+  }
+
+  .titulo-pagina {
+    @apply font-display text-[2.25rem] leading-tight font-extrabold tracking-[-0.025em] text-tinta;
+  }
+
+  .dialogo {
+    @apply m-auto w-[min(36rem,calc(100%-2rem))] rounded-[28px] bg-white p-8 text-tinta shadow-[0_24px_60px_rgba(19,48,58,0.35)] backdrop:bg-tinta/55;
+  }
 }

@@ -37,8 +37,8 @@ export default async function EmbudoPage({
 
   if (agente && agente.role !== "TEAM_ADMIN") {
     return (
-      <main className="mx-auto max-w-7xl px-4 py-8">
-        <h1 className="mb-6 text-lg font-semibold text-neutral-900">Embudo de conversión</h1>
+      <main className="px-9 py-8">
+        <h1 className="titulo-pagina mb-6">Embudo de conversión</h1>
         <Aviso>Esta vista es solo para administradores del equipo.</Aviso>
       </main>
     );
@@ -67,12 +67,12 @@ export default async function EmbudoPage({
   ]);
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-8">
+    <main className="px-9 py-8">
       <HydrationBoundary state={dehydrate(qc)}>
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-lg font-semibold text-neutral-900">Embudo de conversión</h1>
-            <p className="mt-1 text-sm text-neutral-600">
+            <h1 className="titulo-pagina">Embudo de conversión</h1>
+            <p className="mt-1 text-base text-tinta-suave">
               De los leads creados en el rango, cuántos llegaron a cada etapa y en cuál se pierden más.
             </p>
           </div>

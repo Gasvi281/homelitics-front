@@ -1,6 +1,7 @@
 "use client";
 
 import { Aviso } from "@/components/Aviso";
+import { Cargando } from "@/components/Cargando";
 import { HomeliticsError } from "@/lib/homelitics-navegador";
 import type { FiltrosEmbudo } from "../claves";
 import { mensajeErrorAnalitica, useEmbudo } from "../hooks";
@@ -15,16 +16,7 @@ import { TablaConversion } from "./TablaConversion";
 export function Embudo({ filtros }: { filtros: FiltrosEmbudo }) {
   const q = useEmbudo(filtros);
 
-  if (q.isPending) {
-    return (
-      <Aviso>
-        <p>Cargando el embudo…</p>
-        <p className="mt-1 text-xs text-neutral-400">
-          Puede tardar hasta un minuto la primera vez: el servicio se duerme sin uso.
-        </p>
-      </Aviso>
-    );
-  }
+  if (q.isPending) return <Cargando mensaje="Cargando el embudo…" />;
 
   if (q.isError) {
     const sinPermiso = q.error instanceof HomeliticsError && q.error.kind === "sin_permiso";
@@ -36,7 +28,7 @@ export function Embudo({ filtros }: { filtros: FiltrosEmbudo }) {
             type="button"
             onClick={() => void q.refetch()}
             disabled={q.isFetching}
-            className="mt-3 rounded border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-800 disabled:opacity-40"
+            className="btn btn-sm btn-peligro mt-3"
           >
             {q.isFetching ? "Intentando…" : "Intentar de nuevo"}
           </button>
@@ -56,7 +48,7 @@ export function Embudo({ filtros }: { filtros: FiltrosEmbudo }) {
   }
 
   return (
-    <div className={`grid gap-6 lg:grid-cols-2 ${q.isPlaceholderData ? "opacity-60" : ""}`} aria-busy={q.isPlaceholderData}>
+    <div className={`grid gap-5 xl:grid-cols-[3fr_2fr] ${q.isPlaceholderData ? "opacity-60" : ""}`} aria-busy={q.isPlaceholderData}>
       <GraficaEmbudo embudo={embudo} />
       <TablaConversion embudo={embudo} />
     </div>

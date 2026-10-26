@@ -1245,3 +1245,53 @@ inglés (`mensajeErrorReasignar`); falta traducir los tres casos conocidos.
 El 403 no se pudo ver en vivo (el token es admin). CSV y PDF con nombre de
 agente no se descargaron en esta prueba. El error de hidratación de
 `TableroLeads` visto en esta prueba ya está arreglado (entrada anterior).
+
+## 2026-10-25 — Sistema visual "B + C" en todas las pantallas
+
+**Motivo:** el front usaba los grises de fábrica de Tailwind sobre blanco y la
+tipografía del sistema. Se eligió la combinación de las direcciones de marca
+B (Plano: azul, cifras, embudo como barra) y C (Vereda: burbujas de chat,
+botones redondos, verde para lo que sale bien). Solo escritorio por ahora.
+
+**Hecho:**
+
+- `app/globals.css`: tokens de color en `@theme` (`tinta`, `neblina`,
+  `plano`, `montana`, `sol`, `alerta` con sus variantes) y clases
+  compartidas (`btn`, `btn-primario`, `btn-secundario`, `btn-peligro`,
+  `campo`, `etiqueta`, `panel`, `insignia`, `dialogo`, `titulo-pagina`).
+  Foco visible global y `prefers-reduced-motion` respetado.
+- Fuentes Figtree (texto) y Bricolage Grotesque (títulos y cifras grandes)
+  servidas desde `app/fuentes/` con `next/font/local`, licencia OFL incluida.
+- Marcos: `app/(cliente)/layout.tsx` (encabezado) + `components/MarcoCliente.tsx`
+  (pasos de la visita a la izquierda, contenido a la derecha);
+  `features/agentes/components/NavAgente.tsx` (barra lateral del agente, el
+  embudo solo para admin, igual que antes).
+- Componentes nuevos: `Logo`, `Cargando` (todos los `loading.tsx` lo usan),
+  `SemanaHorarios` (grilla compartida entre agendar y mover).
+- `Aviso` ganó las variantes `exito` y `espera`, con ícono.
+- Historial del lead como conversación (entrante a la izquierda, saliente en
+  azul, notas en amarillo, separadores por día). Tarjetas del tablero con la
+  última interacción como burbuja y una barra de reparto por etapa.
+- `lib/format.ts`: `fechaLarga`, `horaFin`, `partesDia`, `rangoSemana`.
+
+**Decisiones:**
+
+- No se tocó lógica, llamadas al API, hooks ni esquemas: solo marcado y
+  clases. Los criterios de "done" de cada tarea siguen igual.
+- `next/font/local` y no `next/font/google`: en el entorno donde se hizo el
+  cambio Google Fonts estaba bloqueado y el build fallaba; así no depende de
+  la red.
+- En el éxito de 2.2 se agregó "Ver mi visita" (enlace a 2.3, que ya
+  existe); antes no había a dónde ir.
+- "Cancelar" de los diálogos pasó a "Volver" para no confundirlo con
+  "Cancelar la visita".
+- `/dev/explorar` se dejó con su estilo de herramienta de desarrollo.
+
+**Probado** con `USE_MOCKS=true`: `npm run type-check`, `npm run lint`,
+`npm run build` limpios; capturas a 1440 px de agendar, confirmar (y su
+éxito), la visita (mover, cancelar, cancelada), la encuesta (asistencia y
+formulario), el tablero (con arrastre), los perdidos, el lead (abierto y
+perdido), el modal de perdido y el embudo. Sin errores de consola.
+
+**Pendiente:** vistas de celular (fuera de alcance por ahora); pasar el PDF
+del embudo (`features/embudo/pdf.ts`) a los colores nuevos.

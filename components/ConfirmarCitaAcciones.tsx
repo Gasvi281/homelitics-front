@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, HomeliticsError } from "@/lib/homelitics-navegador";
-import { TarjetaCita } from "@/components/TarjetaCita";
+import { Aviso } from "@/components/Aviso";
+import { InsigniaEstadoCita } from "@/components/TarjetaCita";
 import type { Appointment } from "@/lib/schemas";
 
 type Estado =
@@ -98,94 +99,96 @@ export function ConfirmarCitaAcciones({
   if (estado.tipo === "exito") {
     const { cita } = estado;
     return (
-      <div className="mt-6">
-        <TarjetaCita
-          scheduledAt={cita.scheduled_at}
-          durationMin={cita.duration_min}
-          status={cita.status}
-        />
-        <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-6 text-sm text-green-700">
+      // La tarjeta de la cita ya está arriba (la pinta la página); aquí solo
+      // el resultado, con el estado real que devolvió el API (bloqueo 5).
+      <Aviso variante="exito">
+        <p>
+          <strong className="font-bold">
+            {cita.status === "CONFIRMED"
+              ? "Listo, la visita quedó confirmada."
+              : "Listo, pedimos la visita."}
+          </strong>{" "}
           {cita.status === "CONFIRMED"
-            ? "Listo, la visita quedó confirmada. Te esperamos en el horario elegido."
-            : "Listo, pedimos la visita. El agente recibió la solicitud y te avisamos apenas la confirme."}
+            ? "Te esperamos en el horario elegido."
+            : "El agente recibió la solicitud y te avisamos apenas la confirme."}
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <InsigniaEstadoCita status={cita.status} />
+          <Link href={`/citas/${cita.id}`} className="btn btn-sm btn-secundario">
+            Ver mi visita
+          </Link>
         </div>
-      </div>
+      </Aviso>
     );
   }
 
   if (estado.tipo === "conflicto") {
     return (
-      <div className="mt-6 rounded-lg border border-red-200 bg-red-50 p-6 text-sm text-red-700">
-        <p>Alguien más tomó ese horario mientras lo elegías. No es nada que hayas hecho mal.</p>
+      <Aviso variante="error">
+        <p>
+          <strong className="font-bold">Ese horario ya no está libre.</strong> Alguien más lo tomó
+          mientras lo elegías. No es nada que hayas hecho mal.
+        </p>
         <button
           type="button"
           onClick={() => router.push(urlGrilla("conflicto"))}
-          className="mt-3 rounded border border-red-300 px-3 py-1.5 text-red-700"
+          className="btn btn-sm btn-peligro mt-3"
         >
           Ver horarios actualizados
         </button>
-      </div>
+      </Aviso>
     );
   }
 
   if (estado.tipo === "lead_cerrado") {
     return (
-      <div className="mt-6 rounded-lg border border-red-200 bg-red-50 p-6 text-sm text-red-700">
-        Esta conversación ya se cerró, así que no se pueden pedir más visitas sobre ella.
-      </div>
+      <Aviso variante="error">
+        Esta conversación ya se cerró, así que no se pueden pedir más visitas sobre ella. Si te
+        sigue interesando la propiedad, escríbele de nuevo al asistente.
+      </Aviso>
     );
   }
 
   if (estado.tipo === "visita_abierta") {
     return (
-      <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-6 text-sm text-amber-700">
-        <p>Ya hay una visita agendada para esta conversación. El horario que elegiste sigue
-        libre, pero primero hay que mover o cancelar esa otra.</p>
+      <Aviso variante="espera">
+        <p>
+          <strong className="font-bold">Ya tienes una visita agendada para esta propiedad.</strong>{" "}
+          El horario que elegiste sigue libre, pero primero hay que mover o cancelar esa otra.
+        </p>
         {estado.idExistente && (
-          <Link
-            href={`/citas/${estado.idExistente}`}
-            className="mt-3 inline-block rounded border border-amber-300 px-3 py-1.5 text-amber-700"
-          >
+          <Link href={`/citas/${estado.idExistente}`} className="btn btn-sm btn-primario mt-3">
             Ver esa visita
           </Link>
         )}
-      </div>
+      </Aviso>
     );
   }
 
   if (estado.tipo === "vencido") {
     return (
-      <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-6 text-sm text-amber-700">
+      <Aviso variante="espera">
         <p>Ese horario ya pasó. Elige otro para seguir.</p>
-        <button
-          type="button"
-          onClick={() => router.push(urlGrilla())}
-          className="mt-3 rounded border border-amber-300 px-3 py-1.5 text-amber-700"
-        >
+        <button type="button" onClick={() => router.push(urlGrilla())} className="btn btn-sm btn-secundario mt-3">
           Elegir otro horario
         </button>
-      </div>
+      </Aviso>
     );
   }
 
   return (
-    <div className="mt-6">
-      {estado.tipo === "error" && (
-        <p className="mb-3 text-sm text-red-700">{estado.mensaje}</p>
-      )}
-      <div className="flex flex-col gap-3 sm:flex-row">
+    <div className="flex flex-col gap-3">
+      {estado.tipo === "error" && <Aviso variante="error">{estado.mensaje}</Aviso>}
+      <div className="flex flex-wrap gap-3">
         <button
           type="button"
           onClick={pedirVisita}
           disabled={estado.tipo === "enviando"}
-          className="rounded bg-neutral-900 px-4 py-3 text-center font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+          className="btn btn-lg btn-primario"
         >
-          {estado.tipo === "enviando" ? "Enviando…" : "Pedir la visita"}
+          {estado.tipo === "enviando" ? "Pidiendo la visita…" : "Pedir la visita"}
         </button>
-        <Link
-          href={urlGrilla()}
-          className="rounded border border-neutral-300 px-4 py-3 text-center font-medium text-neutral-700"
-        >
+        <Link href={urlGrilla()} className="btn btn-lg btn-secundario">
           Cambiar el horario
         </Link>
       </div>

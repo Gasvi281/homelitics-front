@@ -2,17 +2,20 @@ import type { Stage } from "@/lib/schemas";
 import { EMBUDO, ETIQUETA_ETAPA } from "@/lib/etapas";
 
 /**
- * Embudo completo del lead (tarea 2.4), con la etapa actual marcada encima.
- * `etapaActual` es `lead.current_stage`, caché de solo lectura
- * (docs/API_CONTRACT.md) — este componente solo la muestra, nunca la edita.
+ * Embudo completo del lead (tarea 2.4), dibujado como una barra de cinco
+ * tramos con la etapa actual en grande debajo. `etapaActual` es
+ * `lead.current_stage`, caché de solo lectura (docs/API_CONTRACT.md) — este
+ * componente solo la muestra, nunca la edita.
  *
  * Un lead en LOST ya no está en ninguna etapa del embudo. Hasta dónde había
  * llegado sale de `GET /leads/{id}/transitions`: `perdidoDesde` es el
  * `from_stage` de la transición a LOST (la calcula components/EtapaLead.tsx).
- * Con ese dato se marcan como alcanzadas las etapas hasta ahí y la última en
- * rojo. Sin él (el log no se pudo leer o no trae esa fila) no se adivina un
- * punto de corte: se muestra el embudo completo atenuado con la insignia
- * "Lead perdido" aparte.
+ * Con ese dato se pintan los tramos hasta ahí y el último en color de
+ * atención. Sin él (el log no se pudo leer o no trae esa fila) no se adivina
+ * un punto de corte: la barra va atenuada y se dice "Lead perdido".
+ *
+ * Los nombres de cada tramo van como texto para lectores de pantalla; a la
+ * vista queda la etapa actual, que es lo que el agente necesita leer.
  */
 export function EmbudoLead({
   etapaActual,
@@ -26,54 +29,45 @@ export function EmbudoLead({
   const conCorte = hastaDonde >= 0;
   const indiceActual = EMBUDO.indexOf(etapaActual);
 
+  const titulo = perdido
+    ? conCorte
+      ? `Perdido en ${ETIQUETA_ETAPA[perdidoDesde!]}`
+      : "Lead perdido"
+    : ETIQUETA_ETAPA[etapaActual];
+
   return (
     <div>
-      {perdido && (
-        <span className="mb-3 inline-block rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-medium text-red-700">
-          {conCorte ? `Perdido en ${ETIQUETA_ETAPA[perdidoDesde!]}` : "Lead perdido"}
-        </span>
-      )}
-      <ol className={`flex flex-col gap-3 sm:flex-row sm:items-center ${perdido && !conCorte ? "opacity-50" : ""}`}>
+      <p className="text-sm text-tinta-tenue">Etapa</p>
+      <ol aria-label="Etapas del embudo" className={`mt-2 grid grid-cols-5 gap-[3px] ${perdido && !conCorte ? "opacity-45" : ""}`}>
         {EMBUDO.map((etapa, i) => {
-          const completada = perdido ? i < hastaDonde : i < indiceActual;
+          const alcanzada = perdido ? i <= hastaDonde : i <= indiceActual;
           const actual = !perdido && i === indiceActual;
-          const ultimaAlcanzada = conCorte && i === hastaDonde;
-          const noAlcanzada = conCorte && i > hastaDonde;
+          const dondeSePerdio = conCorte && i === hastaDonde;
+          const color = dondeSePerdio ? "bg-alerta" : alcanzada ? "bg-plano" : "bg-borde";
           return (
             <li
               key={etapa}
               aria-current={actual ? "step" : undefined}
-              className={`flex flex-1 items-center gap-2 ${noAlcanzada ? "opacity-40" : ""}`}
+              className={`h-2.5 first:rounded-l-full last:rounded-r-full ${color}`}
             >
-              <span
-                className={
-                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-medium " +
-                  (actual
-                    ? "border-neutral-900 bg-neutral-900 text-white"
-                    : ultimaAlcanzada
-                      ? "border-red-700 bg-red-50 text-red-700"
-                      : completada
-                        ? "border-neutral-400 bg-neutral-100 text-neutral-600"
-                        : "border-neutral-200 bg-white text-neutral-400")
-                }
-              >
-                {i + 1}
-              </span>
-              <span
-                className={`text-sm ${
-                  actual ? "font-semibold text-neutral-900" : ultimaAlcanzada ? "font-semibold text-red-700" : "text-neutral-500"
-                }`}
-              >
+              <span className="sr-only">
                 {ETIQUETA_ETAPA[etapa]}
-                {ultimaAlcanzada && <span className="sr-only"> (aquí se perdió)</span>}
+                {actual ? " (etapa actual)" : dondeSePerdio ? " (aquí se perdió)" : alcanzada ? " (alcanzada)" : ""}
               </span>
-              {i < EMBUDO.length - 1 && (
-                <span className="hidden h-px flex-1 bg-neutral-200 sm:block" aria-hidden />
-              )}
             </li>
           );
         })}
       </ol>
+      <p
+        className={`mt-2 font-display text-[22px] font-bold ${perdido ? "text-alerta-hondo" : "text-tinta"}`}
+      >
+        {titulo}
+      </p>
+      {!perdido && etapaActual !== "WON" && indiceActual >= 0 && (
+        <p className="text-sm text-tinta-tenue">
+          Paso {indiceActual + 1} de {EMBUDO.length}
+        </p>
+      )}
     </div>
   );
 }

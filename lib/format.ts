@@ -35,6 +35,16 @@ export function fechaHoraLarga(iso: string): string {
   return formatInTimeZone(iso, TZ, "EEEE d 'de' MMMM, HH:mm", { locale: es });
 }
 
+/** "2026-09-17T15:30:00Z" -> "jueves 17 de septiembre", en hora de Bogotá (sin la hora). */
+export function fechaLarga(iso: string): string {
+  return formatInTimeZone(iso, TZ, "EEEE d 'de' MMMM", { locale: es });
+}
+
+/** La hora en que termina algo que empieza en `iso` y dura `minutos`, en hora de Bogotá. */
+export function horaFin(iso: string, minutos: number): string {
+  return horaLocal(new Date(new Date(iso).getTime() + minutos * 60_000).toISOString());
+}
+
 /**
  * "2026-09-17T15:30:00Z" -> "hace 3 horas". Una distancia no depende de la
  * zona horaria; si hace falta la fecha exacta, `fechaHoraLarga` (Bogotá).
@@ -66,6 +76,24 @@ export function diaLocal(iso: string): string {
 /** "2026-09-17T15:30:00Z" -> "jue 17", en hora de Bogotá. Cabecera de columna de la grilla. */
 export function etiquetaDia(iso: string): string {
   return formatInTimeZone(iso, TZ, "EEE d", { locale: es });
+}
+
+/** "2026-09-17T05:00:00Z" -> { semana: "jueves", numero: "17" }, en hora de Bogotá. Cabecera grande de la grilla. */
+export function partesDia(iso: string): { semana: string; numero: string } {
+  return {
+    semana: formatInTimeZone(iso, TZ, "EEEE", { locale: es }),
+    numero: formatInTimeZone(iso, TZ, "d"),
+  };
+}
+
+/** "Semana del 26 al 30 de octubre" (o "del 29 de septiembre al 3 de octubre") a partir de lunes a viernes. */
+export function rangoSemana(dias: string[]): string {
+  const primero = dias[0];
+  const ultimo = dias[dias.length - 1];
+  const mismoMes = formatInTimeZone(primero, TZ, "M") === formatInTimeZone(ultimo, TZ, "M");
+  const desde = formatInTimeZone(primero, TZ, mismoMes ? "d" : "d 'de' MMMM", { locale: es });
+  const hasta = formatInTimeZone(ultimo, TZ, "d 'de' MMMM", { locale: es });
+  return `Semana del ${desde} al ${hasta}`;
 }
 
 /**

@@ -81,13 +81,12 @@ export function ExportarEmbudo({ filtros }: { filtros: FiltrosEmbudo }) {
     }
   }
 
-  const boton =
-    "rounded border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40";
+  const boton = "btn btn-sm btn-suave";
 
   return (
     <div className="flex flex-col items-end gap-1">
       <div className="flex items-center gap-2" role="group" aria-label="Exportar el embudo">
-        <span className="text-sm text-neutral-600">Exportar:</span>
+        <span className="text-sm font-semibold text-tinta-suave">Exportar</span>
         <button type="button" onClick={exportarCsv} disabled={deshabilitado} className={boton}>
           {enCurso === "csv" ? "Descargando…" : "CSV"}
         </button>
@@ -95,7 +94,7 @@ export function ExportarEmbudo({ filtros }: { filtros: FiltrosEmbudo }) {
           {enCurso === "pdf" ? "Generando…" : "PDF"}
         </button>
       </div>
-      {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
+      {error && <p role="alert" className="text-sm font-semibold text-alerta-hondo">{error}</p>}
     </div>
   );
 }

@@ -71,16 +71,16 @@ export function ModalReasignar({
         e.preventDefault();
         if (!enviando) alCancelar();
       }}
-      className="m-auto w-[min(30rem,calc(100%-2rem))] rounded-lg bg-white p-6 shadow-xl backdrop:bg-black/40"
+      className="dialogo"
     >
       <form onSubmit={confirmar}>
-        <h2 id="reasignar-titulo" className="text-base font-semibold text-neutral-900">
+        <h2 id="reasignar-titulo" className="font-display text-[30px] leading-tight font-extrabold tracking-[-0.025em]">
           Reasignar {cliente ?? "este lead"}
         </h2>
         <NombreAgente
           agentId={dueñoId}
           prefijo="Hoy lo atiende "
-          className="mt-1 block text-sm text-neutral-600"
+          className="mt-1 block text-base text-tinta-suave"
         />
 
         <div className="mt-5">
@@ -96,32 +96,32 @@ export function ModalReasignar({
           />
         </div>
 
-        <p id="reasignar-nota" className="mt-4 rounded bg-neutral-50 p-3 text-sm text-neutral-600">
+        <p id="reasignar-nota" className="mt-5 rounded-2xl bg-plano-claro px-4 py-3 text-sm leading-relaxed text-plano-texto">
           El nuevo agente no recibe notificación; verá el lead en su tablero. Las tareas de
           seguimiento abiertas se quedan con el agente anterior.
         </p>
 
         {error && (
-          <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>
+          <p role="alert" className="mt-3 text-sm font-semibold text-alerta-hondo">{error}</p>
         )}
 
-        <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
+        <div className="mt-7 flex flex-wrap items-center justify-end gap-2.5">
           {motivoBloqueo && (
-            <p id="reasignar-bloqueo" className="mr-auto text-xs text-neutral-500">{motivoBloqueo}</p>
+            <p id="reasignar-bloqueo" className="mr-auto text-sm text-tinta-tenue">{motivoBloqueo}</p>
           )}
           <button
             type="button"
             onClick={alCancelar}
             disabled={enviando}
-            className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-40"
+            className="btn btn-secundario"
           >
-            Cancelar
+            Volver
           </button>
           <button
             type="submit"
             disabled={!destinoValido || enviando || sinReintento}
             aria-describedby={motivoBloqueo ? "reasignar-bloqueo" : undefined}
-            className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40"
+            className="btn btn-primario"
           >
             {enviando ? "Reasignando…" : "Reasignar el lead"}
           </button>

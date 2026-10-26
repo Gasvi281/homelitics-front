@@ -3,6 +3,7 @@ import type { Appointment } from "@/lib/schemas";
 import { fechaHoraLarga } from "@/lib/format";
 import { Aviso } from "@/components/Aviso";
 import { EncuestaFlujo } from "@/components/EncuestaFlujo";
+import { MarcoCliente, NotaAsistente } from "@/components/MarcoCliente";
 
 /**
  * Tarea 2.5 — HU-14. `(cliente)/citas/[appointmentId]/encuesta`, sin sesión
@@ -39,7 +40,7 @@ export default async function EncuestaPage({
   if (Date.now() < finDeVisita) {
     return (
       <Contenedor>
-        <Aviso>
+        <Aviso variante="espera">
           Todavía no llega la hora de tu visita ({fechaHoraLarga(cita.scheduled_at)}). La encuesta
           se habilita después.
         </Aviso>
@@ -48,20 +49,27 @@ export default async function EncuestaPage({
   }
 
   return (
-    <Contenedor>
-      <h1 className="text-lg font-semibold text-neutral-900">¿Cómo te fue en la visita?</h1>
-      <p className="mt-1 text-sm text-neutral-500">
-        {fechaHoraLarga(cita.scheduled_at)}. Tu respuesta ayuda al agente a hacer mejor seguimiento.
-      </p>
-      <div className="mt-6">
-        <EncuestaFlujo appointmentId={cita.id} citaInicial={cita} />
+    <MarcoCliente
+      paso={4}
+      lateral={
+        <NotaAsistente>
+          Tus respuestas le llegan a tu asesor. Así sabe qué mostrarte la próxima vez.
+        </NotaAsistente>
+      }
+    >
+      <div>
+        <h1 className="titulo-pagina">¿Cómo te fue en la visita?</h1>
+        <p className="mt-1.5 text-base text-tinta-suave first-letter:uppercase">
+          {fechaHoraLarga(cita.scheduled_at)}. Te toma menos de un minuto.
+        </p>
       </div>
-    </Contenedor>
+      <EncuestaFlujo appointmentId={cita.id} citaInicial={cita} />
+    </MarcoCliente>
   );
 }
 
 function Contenedor({ children }: { children: React.ReactNode }) {
-  return <main className="mx-auto max-w-3xl px-4 py-8">{children}</main>;
+  return <MarcoCliente paso={4}>{children}</MarcoCliente>;
 }
 
 function mensajeError(e: unknown): string {

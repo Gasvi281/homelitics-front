@@ -1,6 +1,6 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { AgenteActualProvider } from "@/features/agentes/AgenteActual";
+import { NavAgente } from "@/features/agentes/components/NavAgente";
 import { obtenerAgenteActual } from "@/lib/agente-actual";
 import type { Agent } from "@/lib/schemas";
 
@@ -18,7 +18,9 @@ import type { Agent } from "@/lib/schemas";
  * adentro, que ya reciben la credencial a través de `lib/homelitics.ts`.
  *
  * Resuelve el agente actual (GET /me) y lo reparte con `AgenteActualProvider`
- * para que los Client Components sepan su rol (`useEsAdmin()`). Si /me falla,
+ * para que los Client Components sepan su rol (`useEsAdmin()`); con el mismo
+ * dato `NavAgente` pinta la barra lateral y decide si muestra el embudo,
+ * que es solo para admin (el API responde 403 igual). Si /me falla,
  * las pantallas siguen funcionando: solo se esconde lo que es de admin, y
  * cada pantalla muestra su propio error si el API de verdad no responde.
  */
@@ -29,26 +31,11 @@ export default async function AgenteLayout({ children }: { children: ReactNode }
   } catch {
     agente = null;
   }
-  // Solo para no mostrar un enlace inútil: el API responde 403 igual.
-  const esAdmin = agente?.role === "TEAM_ADMIN";
-
   return (
     <AgenteActualProvider agente={agente}>
-      <div className="min-h-screen bg-white">
-        <header className="border-b border-neutral-200">
-          <nav className="mx-auto flex max-w-7xl items-center gap-6 px-4 py-3 text-sm">
-            <span className="font-semibold text-neutral-900">Homelitics</span>
-            <Link href="/tablero" className="text-neutral-600 hover:text-neutral-900">
-              Tablero de leads
-            </Link>
-            {esAdmin && (
-              <Link href="/embudo" className="text-neutral-600 hover:text-neutral-900">
-                Embudo
-              </Link>
-            )}
-          </nav>
-        </header>
-        {children}
+      <div className="flex min-h-screen flex-col lg:flex-row">
+        <NavAgente agente={agente} />
+        <div className="min-w-0 flex-1">{children}</div>
       </div>
     </AgenteActualProvider>
   );
