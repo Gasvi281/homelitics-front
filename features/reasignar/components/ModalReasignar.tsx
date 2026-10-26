@@ -97,7 +97,7 @@ export function ModalReasignar({
         </div>
 
         <p id="reasignar-nota" className="mt-5 rounded-2xl bg-plano-claro px-4 py-3 text-sm leading-relaxed text-plano-texto">
-          El nuevo agente no recibe notificación; verá el lead en su tablero. Las tareas de
+          El nuevo agente recibe un aviso y verá el lead en su tablero. Las tareas de
           seguimiento abiertas se quedan con el agente anterior.
         </p>
 

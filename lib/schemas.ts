@@ -37,6 +37,15 @@ export const LostReason = z.enum([
   "PRICE", "LOCATION", "BOUGHT_ELSEWHERE", "NO_RESPONSE", "FINANCING", "OTHER",
 ]);
 
+/** Tipo de aviso. Confirmado contra /openapi.json (`NotificationOut`) el 2026-10-25. */
+export const NotificationType = z.enum(["LEAD_ASSIGNED", "VISIT_SCHEDULED"]);
+/**
+ * Cómo le llegó el lead al agente en un aviso `LEAD_ASSIGNED`: `CREATED` (el
+ * bot o un admin lo abrió para él) o `REASSIGNED` (un admin se lo pasó).
+ * Confirmado contra /openapi.json el 2026-10-25.
+ */
+export const AssignedVia = z.enum(["CREATED", "REASSIGNED"]);
+
 /** Estados de los que ya no se sale. La UI deshabilita acciones sobre ellos. */
 export const TERMINAL_APPOINTMENT_STATUS = ["CANCELLED", "COMPLETED", "NO_SHOW"] as const;
 
@@ -367,6 +376,61 @@ export const LostReasonStatSchema = z.object({
   pct: z.number(),
 });
 
+/* ---------- avisos (tareas 2.28 a 2.37) ---------- */
+
+/**
+ * Un aviso (`NotificationOut`). Confirmado contra /openapi.json el
+ * 2026-10-25: los 21 campos son obligatorios y los que no aplican al tipo
+ * llegan en `null`. `id` es entero, no uuid: mayor = más nuevo. Los
+ * `visit_*` describen la visita como está AHORA, no como se agendó;
+ * "requiere tu confirmación" sale de `visit_status`, nunca de
+ * `booked_status`. `actor_role` admite `AGENT` aunque la guía del back dice
+ * que no llega (bloqueo 22).
+ */
+export const NotificationSchema = z.object({
+  id: z.number().int(),
+  type: NotificationType,
+  read: z.boolean(),
+  read_at: instant.nullable(),
+  created_at: instant,
+  recipient_agent_id: z.string().uuid(),
+  recipient_name: z.string().nullable(),
+  actor_agent_id: z.string().uuid().nullable(),
+  actor_name: z.string().nullable(),
+  actor_role: AgentListItemSchema.shape.role.nullable(),
+  lead_id: z.string().uuid(),
+  client_name: z.string().nullable(),
+  listing_address: z.string().nullable(),
+  neighborhood: z.string().nullable(),
+  /** Solo `LEAD_ASSIGNED`. */
+  assigned_via: AssignedVia.nullable(),
+  /** Solo `REASSIGNED`: quién tenía el lead antes. */
+  from_agent_id: z.string().uuid().nullable(),
+  /** Solo `VISIT_SCHEDULED`, igual que los cuatro de abajo. */
+  appointment_id: z.string().uuid().nullable(),
+  visit_scheduled_at: instant.nullable(),
+  visit_duration_min: z.number().int().nullable(),
+  visit_status: AppointmentStatus.nullable(),
+  booked_status: AppointmentStatus.nullable(),
+});
+
+/**
+ * GET /me/notifications y GET /notifications (`NotificationPage`). Paginan
+ * por cursor: `next_before` se manda tal cual como `?before=`; `null` = no
+ * hay más. `unread_count` cuenta los no leídos que cumplen los filtros, en
+ * todas las páginas.
+ */
+export const NotificationPageSchema = z.object({
+  items: z.array(NotificationSchema),
+  unread_count: z.number().int(),
+  next_before: z.number().int().nullable(),
+});
+
+/** POST /me/notifications/read-all (`MarkedRead`): cuántos se marcaron. */
+export const MarkedReadSchema = z.object({
+  marked: z.number().int(),
+});
+
 /* ---------- PROPUESTO: no existe en el API (docs/API_CONTRACT.md §8) ---------- */
 
 /*
@@ -447,6 +511,12 @@ export type CreateTaskBody = z.input<typeof CreateTaskBody>;
 export type PatchTaskBody = z.input<typeof PatchTaskBody>;
 export type Feedback = z.infer<typeof FeedbackSchema>;
 export type AppointmentStatus = z.infer<typeof AppointmentStatus>;
+export type NotificationType = z.infer<typeof NotificationType>;
+export type AssignedVia = z.infer<typeof AssignedVia>;
+/** No se llama `Notification` para no tapar el global del navegador. */
+export type NotificationOut = z.infer<typeof NotificationSchema>;
+export type NotificationPage = z.infer<typeof NotificationPageSchema>;
+export type MarkedRead = z.infer<typeof MarkedReadSchema>;
 export type Channel = z.infer<typeof Channel>;
 export type Stage = z.infer<typeof Stage>;
 export type Objection = z.infer<typeof Objection>;

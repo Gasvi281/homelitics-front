@@ -36,6 +36,7 @@
  * | Riesgo: llamada humana hace 6 h, fuera a 24 h      | `LEAD_ID_ATENDIDO`        |
  * | Riesgo: solo le contestó el bot, sigue en riesgo   | `LEAD_ID_SOLO_BOT`        |
  * | Riesgo: solo tiene una nota saliente, sigue en riesgo | `LEAD_ID_SOLO_NOTA`    |
+ * | Avisos (2.30): 34, ids enteros desde 1201; 22 del demo | `SEMILLA_AVISOS`      |
  *
  * GET /leads devuelve 15 tarjetas repartidas en las seis etapas, y
  * POST /leads/{id}/transitions aplica las reglas del API (409 y 422) y mueve
@@ -55,9 +56,10 @@ import { HomeliticsError, type ErrorKind } from "../errores";
 import { TZ } from "../format";
 import { EMBUDO, destinosLegales, esTerminal, puedeMover } from "../etapas";
 import {
-  LostReason, Stage, TaskStatus, TERMINAL_APPOINTMENT_STATUS,
+  LostReason, NotificationType, Stage, TaskStatus, TERMINAL_APPOINTMENT_STATUS,
   type Agent, type AgentListItem, type Appointment, type AppointmentDetail, type Feedback,
-  type Interaction, type Lead, type LeadCard, type Listing, type RiesgoAgente, type RiesgoPorAgente,
+  type Interaction, type Lead, type LeadCard, type Listing, type MarkedRead,
+  type NotificationOut, type NotificationPage, type RiesgoAgente, type RiesgoPorAgente,
   type TareaAgencia, type Task, type Transition,
 } from "../schemas";
 
@@ -112,6 +114,20 @@ const AGENT_ID_ANDRES = uuid(31);
 const AGENT_ID_INACTIVO = uuid(32);
 /** `AI_AGENT`: fuera de GET /agents salvo `include_bots`, y no puede tener leads. */
 const AGENT_ID_BOT = uuid(33);
+
+/* Citas de los avisos (2.30): cubren los seis `visit_status`. */
+const CITA_ID_SANTIAGO = uuid(60);
+const CITA_ID_DANIEL_VISITA = uuid(61);
+const CITA_ID_MATEO_VISITA = uuid(62);
+const CITA_ID_MATEO_NO_SHOW = uuid(63);
+const CITA_ID_LAURA_MOVIDA = uuid(64);
+/** Abierta: "mover ok" de /api/mocktest gana el lead y la cancela. */
+const CITA_ID_DANIEL = uuid(65);
+const CITA_ID_MATEO_PENDIENTE = uuid(66);
+const CITA_ID_VALENTINA = uuid(67);
+const CITA_ID_SOFIA_MOVIDA = uuid(68);
+const CITA_ID_ISABELLA = uuid(69);
+const CITA_ID_JUAN_PABLO = uuid(70);
 
 /** Contador para ids generados en POST (citas, interacciones, feedback nuevos). */
 let siguienteId = 1000;
@@ -363,7 +379,36 @@ let citas: Appointment[] = [
     created_at: "2026-09-01T16:00:00Z",
     updated_at: "2026-09-02T16:00:00Z",
   },
+  // Avisos (2.30): una cita por cada `VISIT_SCHEDULED` que no cae en las de
+  // arriba, en el lead y con el agente del aviso. Las futuras van respecto al
+  // arranque, para que "requiere tu confirmación" no hable del pasado.
+  citaSemilla(CITA_ID_SANTIAGO, LEAD_ID_GANADO, AGENT_ID, "2026-08-20T15:00:00Z", 60, "COMPLETED", "2026-08-15T14:00:00Z", null),
+  citaSemilla(CITA_ID_DANIEL_VISITA, LEAD_ID_NEGOCIANDO, AGENT_ID, "2026-08-28T19:00:00Z", 60, "COMPLETED", "2026-08-20T13:00:00Z", AGENT_ID_BOT),
+  citaSemilla(CITA_ID_MATEO_VISITA, uuid(124), AGENT_ID, "2026-09-15T21:00:00Z", 60, "COMPLETED", "2026-09-05T14:00:00Z", AGENT_ID_BOT),
+  citaSemilla(CITA_ID_MATEO_NO_SHOW, uuid(124), AGENT_ID, haceHoras(200), 60, "NO_SHOW", haceHoras(260), AGENT_ID_BOT),
+  citaSemilla(CITA_ID_LAURA_MOVIDA, LEAD_ID, AGENT_ID, enDias(6, "10:00"), 30, "RESCHEDULED", haceHoras(20), AGENT_ID_BOT),
+  citaSemilla(CITA_ID_DANIEL, LEAD_ID_NEGOCIANDO, AGENT_ID, enDias(1, "11:00"), 60, "CONFIRMED", haceHoras(6), null),
+  citaSemilla(CITA_ID_MATEO_PENDIENTE, uuid(124), AGENT_ID, enDias(2, "15:00"), 60, "PENDING_CONFIRMATION", haceHoras(3), AGENT_ID_BOT),
+  citaSemilla(CITA_ID_VALENTINA, uuid(125), AGENT_ID_PAULA, haceHoras(150), 60, "COMPLETED", haceHoras(220), AGENT_ID_BOT),
+  citaSemilla(CITA_ID_SOFIA_MOVIDA, uuid(122), AGENT_ID_PAULA, enDias(4, "16:00"), 60, "RESCHEDULED", haceHoras(50), AGENT_ID_BOT),
+  citaSemilla(CITA_ID_ISABELLA, uuid(127), AGENT_ID_ANDRES, enDias(3, "09:00"), 60, "CONFIRMED", haceHoras(30), AGENT_ID),
+  citaSemilla(CITA_ID_JUAN_PABLO, uuid(121), AGENT_ID_ANDRES, enDias(5, "14:00"), 30, "PENDING_CONFIRMATION", haceHoras(10), AGENT_ID_BOT),
 ];
+
+function citaSemilla(
+  id: string, leadId: string, agentId: string, cuando: string, duracion: number,
+  estado: Appointment["status"], creada: string, creadaPor: string | null,
+): Appointment {
+  return {
+    id, lead_id: leadId, agent_id: agentId, scheduled_at: cuando, duration_min: duracion,
+    status: estado, created_by: creadaPor, created_at: creada, updated_at: creada,
+  };
+}
+
+/** `hh:mm` de Bogotá, `d` días después del día del arranque. */
+function enDias(d: number, hhmm: string): string {
+  return fromZonedTime(`${diaBogotaStr(new Date(ARRANQUE + d * 86_400_000))}T${hhmm}:00`, TZ).toISOString();
+}
 
 let interacciones: Interaction[] = [
   {
@@ -1478,6 +1523,241 @@ function motivosPerdidaMock(params: URLSearchParams) {
     .map(([reason, n]) => ({ reason, leads: n, pct: pct(n, perdidos.length)! }));
 }
 
+/* ---------- avisos (2.30) ---------- */
+
+type ActorAviso = Pick<NotificationOut, "actor_agent_id" | "actor_name" | "actor_role">;
+
+const BOT: ActorAviso = { actor_agent_id: AGENT_ID_BOT, actor_name: "Asistente Homelitics", actor_role: "AI_AGENT" };
+/** El demo como admin: solo les escribe a Paula y a Andrés (nadie se avisa a sí mismo). */
+const HERNANDO: ActorAviso = { actor_agent_id: AGENT_ID, actor_name: agente.full_name, actor_role: "TEAM_ADMIN" };
+/** El caso nulo: "Un administrador". Es quien le escribe al demo cuando no es el bot. */
+const ADMIN_SIN_NOMBRE: ActorAviso = { actor_agent_id: null, actor_name: null, actor_role: "TEAM_ADMIN" };
+
+/**
+ * Lo que guarda el mock. El resto de `NotificationOut` se resuelve al
+ * responder, como los joins del API: nombres, dirección y la visita
+ * **como está ahora** (cancelar o mover una cita cambia su aviso).
+ */
+type AvisoMock = ActorAviso & Pick<NotificationOut,
+  "id" | "type" | "read_at" | "created_at" | "recipient_agent_id" | "lead_id"
+  | "assigned_via" | "from_agent_id" | "appointment_id" | "booked_status">;
+
+type SemillaAviso = Omit<AvisoMock, "id" | "read_at"> & { leido: boolean };
+
+/** `LEAD_ASSIGNED`: `CREATED`, o `REASSIGNED` si viene `desde` (el dueño anterior). */
+function asignado(
+  para: string, leadId: string, actor: ActorAviso, creado: string, leido: boolean, desde?: string,
+): SemillaAviso {
+  return {
+    ...actor, type: "LEAD_ASSIGNED", created_at: creado, recipient_agent_id: para, lead_id: leadId,
+    assigned_via: desde ? "REASSIGNED" : "CREATED", from_agent_id: desde ?? null,
+    appointment_id: null, booked_status: null, leido,
+  };
+}
+
+/** `VISIT_SCHEDULED` de una cita semilla: lo recibe su agente, cuando se creó la cita. */
+function agendada(citaId: string, actor: ActorAviso, agendadaComo: Appointment["status"], leido: boolean): SemillaAviso {
+  const cita = citas.find(c => c.id === citaId)!;
+  return {
+    ...actor, type: "VISIT_SCHEDULED", created_at: cita.created_at, recipient_agent_id: cita.agent_id,
+    lead_id: cita.lead_id, assigned_via: null, from_agent_id: null,
+    appointment_id: citaId, booked_status: agendadaComo, leido,
+  };
+}
+
+/**
+ * 34 avisos: 22 del demo (más de una página de 20, 6 sin leer), 7 de Paula y
+ * 5 de Andrés. Los `REASSIGNED` de Paula y Andrés son leads que el bot le
+ * abrió al demo y Hernando les pasó. `booked_status` difiere del estado
+ * actual en varias (confirmada después, cancelada, movida, completada).
+ */
+const SEMILLA_AVISOS: SemillaAviso[] = [
+  // Demo.
+  asignado(AGENT_ID, LEAD_ID_GANADO, ADMIN_SIN_NOMBRE, "2026-08-03T16:01:00Z", true),
+  asignado(AGENT_ID, uuid(129), BOT, "2026-08-06T19:31:00Z", true),
+  asignado(AGENT_ID, LEAD_ID_NEGOCIANDO, BOT, "2026-08-12T15:31:00Z", true),
+  agendada(CITA_ID_SANTIAGO, ADMIN_SIN_NOMBRE, "CONFIRMED", true),
+  asignado(AGENT_ID, uuid(127), BOT, "2026-08-18T13:01:00Z", true),
+  agendada(CITA_ID_DANIEL_VISITA, BOT, "PENDING_CONFIRMATION", true),
+  asignado(AGENT_ID, uuid(124), BOT, "2026-08-25T17:01:00Z", true),
+  asignado(AGENT_ID, LEAD_ID, BOT, "2026-09-01T14:06:00Z", true),
+  agendada(APPOINTMENT_ID_CANCELADA, BOT, "CONFIRMED", true),
+  agendada(APPOINTMENT_ID_COMPLETADA, BOT, "CONFIRMED", true),
+  agendada(APPOINTMENT_ID_NO_COMPLETADA, BOT, "PENDING_CONFIRMATION", true),
+  agendada(CITA_ID_MATEO_VISITA, BOT, "PENDING_CONFIRMATION", true),
+  agendada(APPOINTMENT_ID, BOT, "PENDING_CONFIRMATION", false),
+  asignado(AGENT_ID, LEAD_ID_VACIO, BOT, "2026-09-09T20:01:00Z", false), // client_name nulo
+  asignado(AGENT_ID, uuid(120), BOT, "2026-09-20T13:11:00Z", true),
+  asignado(AGENT_ID, uuid(121), ADMIN_SIN_NOMBRE, "2026-09-24T15:01:00Z", true),
+  asignado(AGENT_ID, LEAD_ID, ADMIN_SIN_NOMBRE, haceHoras(400), true, AGENT_ID_PAULA),
+  agendada(CITA_ID_MATEO_NO_SHOW, BOT, "PENDING_CONFIRMATION", true),
+  agendada(CITA_ID_LAURA_MOVIDA, BOT, "CONFIRMED", false),
+  agendada(CITA_ID_DANIEL, ADMIN_SIN_NOMBRE, "CONFIRMED", false),
+  agendada(CITA_ID_MATEO_PENDIENTE, BOT, "PENDING_CONFIRMATION", false),
+  asignado(AGENT_ID, LEAD_ID_RECIENTE, BOT, haceHoras(2), false),
+  // Paula.
+  // 20:30 del 7 en Bogotá, ya 8 en UTC: prueba los días de `created_from`/`created_to`.
+  asignado(AGENT_ID_PAULA, uuid(129), HERNANDO, "2026-08-08T01:30:00Z", true, AGENT_ID),
+  asignado(AGENT_ID_PAULA, uuid(122), BOT, "2026-09-10T16:41:00Z", true),
+  asignado(AGENT_ID_PAULA, uuid(120), HERNANDO, "2026-09-20T15:00:00Z", true, AGENT_ID),
+  asignado(AGENT_ID_PAULA, LEAD_ID, HERNANDO, haceHoras(420), true, AGENT_ID),
+  agendada(CITA_ID_VALENTINA, BOT, "PENDING_CONFIRMATION", true),
+  agendada(CITA_ID_SOFIA_MOVIDA, BOT, "CONFIRMED", false),
+  asignado(AGENT_ID_PAULA, LEAD_ID_RECIENTE, HERNANDO, haceHoras(1.5), false, AGENT_ID),
+  // Andrés.
+  asignado(AGENT_ID_ANDRES, LEAD_ID_PERDIDO, BOT, "2026-08-10T14:01:00Z", true),
+  asignado(AGENT_ID_ANDRES, uuid(127), HERNANDO, "2026-08-19T14:00:00Z", true, AGENT_ID),
+  asignado(AGENT_ID_ANDRES, uuid(121), HERNANDO, "2026-09-24T16:00:00Z", false, AGENT_ID),
+  agendada(CITA_ID_ISABELLA, HERNANDO, "CONFIRMED", false),
+  agendada(CITA_ID_JUAN_PABLO, BOT, "PENDING_CONFIRMATION", false),
+];
+
+/** Ids enteros en orden de creación (mayor = más nuevo, como el API). En memoria: /read y /read-all la cambian. */
+let avisos: AvisoMock[] = [...SEMILLA_AVISOS]
+  .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+  .map(({ leido, ...resto }, i) => ({
+    ...resto,
+    id: 1201 + i,
+    read_at: leido ? new Date(Math.min(Date.parse(resto.created_at) + 40 * 60_000, ARRANQUE)).toISOString() : null,
+  }));
+
+function aNotificationOut(a: AvisoMock): NotificationOut {
+  const lead = buscarLead(a.lead_id);
+  const pub = lead && buscarListing(lead.listing_id);
+  const cita = a.appointment_id ? citas.find(c => c.id === a.appointment_id) : undefined;
+  return {
+    id: a.id, type: a.type, read: a.read_at !== null, read_at: a.read_at, created_at: a.created_at,
+    recipient_agent_id: a.recipient_agent_id,
+    recipient_name: agentes.find(x => x.id === a.recipient_agent_id)?.full_name ?? null,
+    actor_agent_id: a.actor_agent_id, actor_name: a.actor_name, actor_role: a.actor_role,
+    lead_id: a.lead_id, client_name: lead?.client_name ?? null,
+    listing_address: pub?.address ?? null, neighborhood: pub?.neighborhood ?? null,
+    assigned_via: a.assigned_via, from_agent_id: a.from_agent_id, appointment_id: a.appointment_id,
+    visit_scheduled_at: cita?.scheduled_at ?? null, visit_duration_min: cita?.duration_min ?? null,
+    visit_status: cita?.status ?? null, booked_status: a.booked_status,
+  };
+}
+
+/** Un bool de la query como lo lee Pydantic. */
+function booleanoDeQuery(params: URLSearchParams, clave: string): boolean | null {
+  const crudo = params.get(clave);
+  if (crudo === null) return null;
+  const v = crudo.toLowerCase();
+  if (["true", "1", "yes", "on", "t", "y"].includes(v)) return true;
+  if (["false", "0", "no", "off", "f", "n"].includes(v)) return false;
+  invalido(`${clave}: Input should be a valid boolean, unable to interpret input`);
+}
+
+function uuidDeQuery(params: URLSearchParams, clave: string): string | null {
+  const crudo = params.get(clave);
+  if (crudo !== null && !z.string().uuid().safeParse(crudo).success) {
+    invalido(`${clave}: Input should be a valid UUID`);
+  }
+  return crudo;
+}
+
+function diaDeQuery(params: URLSearchParams, clave: string): string | null {
+  const crudo = params.get(clave);
+  if (crudo !== null && !z.iso.date().safeParse(crudo).success) {
+    invalido(`${clave}: Input should be a valid date in the format YYYY-MM-DD`);
+  }
+  return crudo;
+}
+
+/**
+ * Lo común a las dos bandejas: `type`, `read`, `before` y `limit` (1–20).
+ * Más nuevo primero (id descendente); `next_before` es el id del último
+ * cuando quedan más; `unread_count` cuenta los no leídos que cumplen los
+ * filtros en todas las páginas (sin mirar `before`).
+ */
+function paginaAvisos(params: URLSearchParams, delAlcance: (a: AvisoMock) => boolean): NotificationPage {
+  const tipo = params.get("type");
+  if (tipo !== null && !NotificationType.safeParse(tipo).success) {
+    invalido("type: Input should be 'LEAD_ASSIGNED' or 'VISIT_SCHEDULED'");
+  }
+  const leido = booleanoDeQuery(params, "read");
+  const before = params.has("before")
+    ? enteroDeQuery(params, "before", 0, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)
+    : null;
+  const limit = enteroDeQuery(params, "limit", 20, 1, 20);
+
+  const cumplen = avisos
+    .filter(delAlcance)
+    .filter(a => tipo === null || a.type === tipo)
+    .filter(a => leido === null || (a.read_at !== null) === leido)
+    .sort((a, b) => b.id - a.id);
+  const restantes = before === null ? cumplen : cumplen.filter(a => a.id < before);
+  const pagina = restantes.slice(0, limit);
+  return {
+    items: pagina.map(aNotificationOut),
+    unread_count: cumplen.filter(a => a.read_at === null).length,
+    next_before: restantes.length > limit ? pagina[pagina.length - 1].id : null,
+  };
+}
+
+/** GET /me/notifications: solo los del demo. Leerla no marca nada. */
+function avisosMock(params: URLSearchParams): NotificationPage {
+  return paginaAvisos(params, a => a.recipient_agent_id === agente.id);
+}
+
+/**
+ * POST /me/notifications/{id}/read → 204 (`undefined`). Idempotente:
+ * `read_at` guarda la primera vez. 404 si no es del demo o no existe.
+ */
+function marcarAvisoLeidoMock(crudo: string): undefined {
+  if (!/^-?\d+$/.test(crudo)) {
+    invalido("notification_id: Input should be a valid integer, unable to parse string as an integer");
+  }
+  const id = Number(crudo);
+  if (!avisos.some(a => a.id === id && a.recipient_agent_id === agente.id)) noEncontrado("Notification not found");
+  const ahora = new Date().toISOString();
+  avisos = avisos.map(a => (a.id === id && a.read_at === null ? { ...a, read_at: ahora } : a));
+  return undefined;
+}
+
+/** POST /me/notifications/read-all: los no leídos del demo; `marked` dice cuántos. */
+function marcarTodosLeidosMock(): MarkedRead {
+  const ahora = new Date().toISOString();
+  let marked = 0;
+  avisos = avisos.map(a => {
+    if (a.recipient_agent_id !== agente.id || a.read_at !== null) return a;
+    marked++;
+    return { ...a, read_at: ahora };
+  });
+  return { marked };
+}
+
+/**
+ * GET /notifications, el monitor: 403 sin `TEAM_ADMIN` (antes que la query,
+ * como una dependencia de FastAPI); luego 422 de la query y, ya en el
+ * handler, el rango al revés. Días inclusivos en hora de Bogotá. Mirarlo no
+ * marca nada.
+ */
+function avisosAgenciaMock(params: URLSearchParams, prueba: PruebaMock | undefined): NotificationPage {
+  if (rolActual(prueba) !== "TEAM_ADMIN") {
+    throw new HomeliticsError("sin_permiso", "This action requires the TEAM_ADMIN role", 403);
+  }
+  const destinatario = uuidDeQuery(params, "recipient_agent_id");
+  const actor = uuidDeQuery(params, "actor_agent_id");
+  const leadId = uuidDeQuery(params, "lead_id");
+  const porBot = booleanoDeQuery(params, "by_bot");
+  const desde = diaDeQuery(params, "created_from");
+  const hasta = diaDeQuery(params, "created_to");
+  const pagina = paginaAvisos(params, a => {
+    const dia = diaBogotaStr(new Date(a.created_at));
+    return (destinatario === null || a.recipient_agent_id === destinatario)
+      && (actor === null || a.actor_agent_id === actor)
+      && (leadId === null || a.lead_id === leadId)
+      && (porBot === null || (a.actor_role === "AI_AGENT") === porBot)
+      && (desde === null || dia >= desde)
+      && (hasta === null || dia <= hasta);
+  });
+  if (desde && hasta && desde > hasta) {
+    throw new HomeliticsError("invalido", "created_from is after created_to", 422);
+  }
+  return pagina;
+}
+
 /* ---------- router ---------- */
 
 /**
@@ -1492,9 +1772,15 @@ function motivosPerdidaMock(params: URLSearchParams) {
  * modal); para esconder los botones de admin está `MOCK_AGENT_ROLE=AGENT`.
  * `fallaAnalitica` hace fallar los GET de `/analytics/*` (HU-17) con ese
  * `kind`: `falla` solo toca escrituras y el embudo solo lee.
+ * `avisosSinLeer: true` devuelve a no leídos todos los avisos del demo (22,
+ * más de una página: el caso 20+ de 2.33). Se aplica una vez y se borra,
+ * para que marcar después sí se guarde.
+ * `avisoNuevo: true` le agrega al demo un `LEAD_ASSIGNED` del bot, sin leer,
+ * con el id siguiente (el aviso flotante de 2.36). También se aplica una vez.
  */
 type PruebaMock = {
   latenciaMs?: number; falla?: ErrorKind; fallaAnalitica?: ErrorKind; rol?: Agent["role"];
+  avisosSinLeer?: boolean; avisoNuevo?: boolean;
 };
 
 export async function resolverMock(path: string, method: string = "GET", body?: string): Promise<unknown> {
@@ -1506,6 +1792,19 @@ export async function resolverMock(path: string, method: string = "GET", body?: 
 
   const prueba = (globalThis as { __homeliticsMock?: PruebaMock }).__homeliticsMock;
   if (prueba?.latenciaMs) await new Promise(r => setTimeout(r, prueba.latenciaMs));
+  if (prueba?.avisosSinLeer) {
+    delete prueba.avisosSinLeer;
+    avisos = avisos.map(a => (a.recipient_agent_id === agente.id ? { ...a, read_at: null } : a));
+  }
+  if (prueba?.avisoNuevo) {
+    delete prueba.avisoNuevo;
+    const nuevo: AvisoMock = {
+      ...BOT, type: "LEAD_ASSIGNED", created_at: new Date().toISOString(), recipient_agent_id: agente.id,
+      lead_id: LEAD_ID_NEGOCIANDO, assigned_via: "CREATED", from_agent_id: null,
+      appointment_id: null, booked_status: null, id: Math.max(...avisos.map(a => a.id)) + 1, read_at: null,
+    };
+    avisos = [...avisos, nuevo];
+  }
   if (prueba?.falla && m !== "GET") {
     throw prueba.falla === "red"
       ? new HomeliticsError("red", "No se pudo contactar el servicio.")
@@ -1530,6 +1829,13 @@ export async function resolverMock(path: string, method: string = "GET", body?: 
     return searchParams.get("format") === "csv" ? riesgoPorAgenteCsvMock(reporte) : reporte;
   }
   if (pathname === "/tasks" && m === "GET") return tareasAgenciaMock(searchParams);
+
+  if (pathname === "/me/notifications" && m === "GET") return avisosMock(searchParams);
+  if (pathname === "/me/notifications/read-all" && m === "POST") return marcarTodosLeidosMock();
+  if ((match = pathname.match(/^\/me\/notifications\/([^/]+)\/read$/)) && m === "POST") {
+    return marcarAvisoLeidoMock(match[1]);
+  }
+  if (pathname === "/notifications" && m === "GET") return avisosAgenciaMock(searchParams, prueba);
 
   if ((match = pathname.match(/^\/listings\/([^/]+)$/)) && m === "GET") {
     return listingPorIdMock(match[1]);

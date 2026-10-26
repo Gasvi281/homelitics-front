@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, HomeliticsError } from "@/lib/homelitics-navegador";
 import type { Interaction, Task } from "@/lib/schemas";
@@ -56,6 +56,31 @@ export function HistorialLead({ leadId }: { leadId: string }) {
   const [nota, setNota] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resaltada, setResaltada] = useState<string | null>(null);
+  const hayCitas = citas.length > 0;
+
+  // Llegar con `#cita-…` (un aviso VISIT_SCHEDULED, tarea 2.34): el historial
+  // es un Client Component sembrado, así que el navegador puede haber buscado
+  // el ancla antes de que existiera. Se desplaza a mano tras montar y resalta
+  // la cita un par de segundos.
+  useEffect(() => {
+    let quitar: ReturnType<typeof setTimeout> | undefined;
+    const ir = () => {
+      const id = window.location.hash.slice(1);      if (!id.startsWith("cita-")) return;
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.scrollIntoView({ block: "center" });
+      setResaltada(id);
+      clearTimeout(quitar);
+      quitar = setTimeout(() => setResaltada(null), 2500);
+    };
+    ir();
+    window.addEventListener("hashchange", ir);
+    return () => {
+      window.removeEventListener("hashchange", ir);
+      clearTimeout(quitar);
+    };
+  }, [leadId, hayCitas]);
 
   async function enviarNota(e: FormEvent) {
     e.preventDefault();
@@ -109,7 +134,7 @@ export function HistorialLead({ leadId }: { leadId: string }) {
               <ol className="flex flex-col gap-3">
                 {delDia.map((evento) => (
                   <li key={`${evento.tipo}-${evento.id}`} className="flex flex-col">
-                    <EntradaTimeline evento={evento} />
+                    <EntradaTimeline evento={evento} resaltada={resaltada} />
                   </li>
                 ))}
               </ol>
@@ -148,7 +173,7 @@ export function HistorialLead({ leadId }: { leadId: string }) {
  * izquierda, lo que sale hacia él a la derecha en azul, las notas internas
  * en amarillo; cambios de etapa, citas y tareas van al centro, como eventos.
  */
-function EntradaTimeline({ evento }: { evento: EventoTimeline }) {
+function EntradaTimeline({ evento, resaltada }: { evento: EventoTimeline; resaltada: string | null }) {
   if (evento.tipo === "interaccion") {
     const i = evento.interaccion;
     // "Lost: PRICE — nota" se lee "Perdido: Precio — nota".
@@ -190,8 +215,14 @@ function EntradaTimeline({ evento }: { evento: EventoTimeline }) {
 
   if (evento.tipo === "cita") {
     const c = evento.cita;
+    const idCita = `cita-${c.id}`;
     return (
-      <div className="flex w-full max-w-[440px] items-center justify-between gap-3 self-center rounded-2xl border-[1.5px] border-plano-borde bg-plano-tenue px-4 py-3.5">
+      <div
+        id={idCita}
+        className={`flex w-full max-w-[440px] scroll-mt-24 items-center justify-between gap-3 self-center rounded-2xl border-[1.5px] border-plano-borde px-4 py-3.5 transition-colors duration-700 ${
+          resaltada === idCita ? "bg-sol-claro" : "bg-plano-tenue"
+        }`}
+      >
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className="text-[13px] font-bold text-plano-texto">Cita · registrada a las {horaLocal(c.created_at)}</span>
           <strong className="font-display text-lg first-letter:uppercase">

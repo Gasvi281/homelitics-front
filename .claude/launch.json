@@ -18,6 +18,12 @@
       "runtimeExecutable": "cmd",
       "runtimeArgs": ["/c", "set USE_MOCKS=false&& set NEXT_PUBLIC_USE_MOCKS=false&& npm run dev -- -p 3003"],
       "port": 3003
+    },
+    {
+      "name": "homelitics-web-mock-agent",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set MOCK_AGENT_ROLE=AGENT&& npm run dev -- -p 3004"],
+      "port": 3004
     }
   ]
 }
