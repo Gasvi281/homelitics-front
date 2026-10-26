@@ -60,18 +60,18 @@ export default async function RiesgoPage({
   ]);
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-8">
+    <main className="px-9 py-8">
       <HydrationBoundary state={dehydrate(qc)}>
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-lg font-semibold text-neutral-900">Leads en riesgo por agente</h1>
-            <p className="mt-1 text-sm text-neutral-600">
+            <h1 className="titulo-pagina">Leads en riesgo por agente</h1>
+            <p className="mt-1 text-base text-tinta-suave">
               Quién tiene leads sin respuesta, cuántos y desde cuándo. Despliega un agente para ver sus leads.
             </p>
           </div>
           <ExportarRiesgo umbral={umbral} filtros={filtros} />
         </div>
-        <div className="mb-6">
+        <div className="panel mb-4 px-6 py-4">
           <SelectorUmbral inicial={umbral} />
         </div>
         {/* La key remonta el formulario si la URL cambia por fuera (atrás, un enlace). */}

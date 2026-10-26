@@ -47,13 +47,13 @@ export function SelectorUmbral({ inicial }: { inicial?: number }) {
   }
 
   const boton = (activo: boolean) =>
-    `rounded px-2.5 py-1 text-sm font-medium ${
-      activo ? "bg-neutral-900 text-white" : "border border-neutral-300 text-neutral-700 hover:bg-neutral-100"
+    `inline-flex h-9 items-center rounded-full px-3.5 text-sm font-bold ${
+      activo ? "bg-tinta text-white" : "border-[1.5px] border-borde-fuerte bg-white text-tinta hover:border-tinta"
     }`;
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span id={`${id}-etiqueta`} className="text-sm text-neutral-700">
+      <span id={`${id}-etiqueta`} className="text-sm font-bold text-tinta">
         Sin respuesta hace más de
       </span>
       <div role="group" aria-labelledby={`${id}-etiqueta`} className="flex flex-wrap items-center gap-1">
@@ -94,9 +94,9 @@ export function SelectorUmbral({ inicial }: { inicial?: number }) {
             autoFocus
             aria-invalid={error !== null}
             aria-describedby={error ? idError : undefined}
-            className="w-20 rounded border border-neutral-300 bg-white px-2 py-1 text-sm text-neutral-900"
+            className="h-9 w-20 rounded-full border-[1.5px] border-borde-fuerte bg-white px-3 text-sm font-semibold text-tinta"
           />
-          <span className="text-sm text-neutral-700">h</span>
+          <span className="text-sm text-tinta">h</span>
           <button type="submit" className={boton(true)}>Usar este umbral</button>
           <button
             type="button"
@@ -104,7 +104,7 @@ export function SelectorUmbral({ inicial }: { inicial?: number }) {
               setAbierto(false);
               setError(null);
             }}
-            className="px-2 py-1 text-sm text-neutral-600 underline"
+            className="px-2 py-1 text-sm text-tinta-suave underline"
           >
             Cancelar
           </button>
@@ -112,7 +112,7 @@ export function SelectorUmbral({ inicial }: { inicial?: number }) {
       )}
 
       {error && (
-        <p id={idError} className="w-full text-xs text-red-700">{error}</p>
+        <p id={idError} className="w-full text-xs text-alerta-hondo">{error}</p>
       )}
     </div>
   );

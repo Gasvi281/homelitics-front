@@ -45,7 +45,7 @@ export function ReporteRiesgo({ umbral, filtros }: { umbral: number; filtros: Fi
     return (
       <Aviso>
         <p>Cargando los leads en riesgo…</p>
-        <p className="mt-1 text-xs text-neutral-400">
+        <p className="mt-1 text-xs text-tinta-tenue">
           Puede tardar hasta un minuto la primera vez: el servicio se duerme sin uso.
         </p>
       </Aviso>
@@ -60,7 +60,7 @@ export function ReporteRiesgo({ umbral, filtros }: { umbral: number; filtros: Fi
           type="button"
           onClick={() => void q.refetch()}
           disabled={q.isFetching}
-          className="mt-3 rounded border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-800 disabled:opacity-40"
+          className="btn btn-sm btn-peligro mt-3"
         >
           {q.isFetching ? "Intentando…" : "Intentar de nuevo"}
         </button>
@@ -76,7 +76,7 @@ export function ReporteRiesgo({ umbral, filtros }: { umbral: number; filtros: Fi
           type="button"
           onClick={() => void listings.refetch()}
           disabled={listings.isFetching}
-          className="mt-3 rounded border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-800 disabled:opacity-40"
+          className="btn btn-sm btn-peligro mt-3"
         >
           {listings.isFetching ? "Intentando…" : "Intentar de nuevo"}
         </button>
@@ -97,13 +97,13 @@ export function ReporteRiesgo({ umbral, filtros }: { umbral: number; filtros: Fi
         </div>
       )}
       {incompleto && (
-        <p role="status" className="mb-3 rounded border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+        <p role="status" className="mb-3 rounded-2xl bg-sol-claro px-5 py-3 text-sm text-sol-texto">
           Puede estar incompleto: el servicio devolvió el máximo de {LIMITE_RIESGO} leads en riesgo y no dice si
           hay más. Los filtros se aplican sobre esos {LIMITE_RIESGO}.
         </p>
       )}
       {sinUbicar > 0 && (
-        <p className="mb-3 text-xs text-neutral-500">
+        <p className="mb-3 text-xs text-tinta-tenue">
           {sinUbicar === 1 ? "1 lead quedó" : `${sinUbicar} leads quedaron`} fuera del filtro por propiedad: su
           publicación no está en el listado.
         </p>
@@ -135,14 +135,14 @@ export function ReporteRiesgo({ umbral, filtros }: { umbral: number; filtros: Fi
   return (
     <div className={q.isPlaceholderData ? "opacity-60" : ""} aria-busy={q.isPlaceholderData}>
       {avisos}
-      <p className="mb-3 text-sm text-neutral-600">
+      <p className="mb-3 text-sm text-tinta-suave">
         {total === 1 ? "1 lead" : `${total} leads`} sin respuesta hace más de {horas} h, de{" "}
         {grupos.length === 1 ? "1 agente" : `${grupos.length} agentes`}
         {hayFiltros ? ", con los filtros aplicados" : ""}.
       </p>
-      <div className="overflow-x-auto rounded-lg border border-neutral-200">
+      <div className="overflow-x-auto panel">
         <table className="w-full text-left text-sm">
-          <thead className="bg-neutral-50 text-xs text-neutral-500">
+          <thead className="bg-neblina text-xs text-tinta-tenue">
             <tr>
               <th scope="col" className="px-4 py-2 font-medium">Agente</th>
               <th scope="col" className="px-4 py-2 text-right font-medium">Leads en riesgo</th>
@@ -150,7 +150,7 @@ export function ReporteRiesgo({ umbral, filtros }: { umbral: number; filtros: Fi
               <th scope="col" className="px-4 py-2"><span className="sr-only">Detalle</span></th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-neutral-200">
+          <tbody className="divide-y divide-borde">
             {grupos.map(g => (
               <FilaAgente
                 key={g.agentId}
@@ -162,7 +162,7 @@ export function ReporteRiesgo({ umbral, filtros }: { umbral: number; filtros: Fi
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-xs text-neutral-500">
+      <p className="mt-2 text-xs text-tinta-tenue">
         El servicio no da el nombre del cliente en esta lista: cada lead se identifica con el final de su id.
       </p>
     </div>
@@ -183,18 +183,18 @@ function FilaAgente({
   return (
     <Fragment>
       <tr>
-        <th scope="row" className="px-4 py-3 font-medium text-neutral-900">
+        <th scope="row" className="px-4 py-3 font-medium text-tinta">
           <NombreAgenteFila agentId={grupo.agentId} />
         </th>
-        <td className="px-4 py-3 text-right tabular-nums text-neutral-900">{n}</td>
-        <td className="px-4 py-3 text-neutral-700">{fechaHoraConAnio(grupo.masAntiguo.created_at)}</td>
+        <td className="px-4 py-3 text-right tabular-nums text-tinta">{n}</td>
+        <td className="px-4 py-3 text-tinta">{fechaHoraConAnio(grupo.masAntiguo.created_at)}</td>
         <td className="px-4 py-3 text-right">
           <button
             type="button"
             onClick={onAlternar}
             aria-expanded={abierto}
             aria-controls={idDetalle}
-            className="text-sm text-neutral-700 underline hover:text-neutral-900"
+            className="text-sm font-semibold text-plano underline hover:text-plano-hondo"
           >
             {abierto ? "Ocultar leads" : n === 1 ? "Ver el lead" : `Ver los ${n} leads`}
           </button>
@@ -202,7 +202,7 @@ function FilaAgente({
       </tr>
       {abierto && (
         <tr id={idDetalle}>
-          <td colSpan={4} className="bg-neutral-50 px-4 py-3">
+          <td colSpan={4} className="bg-neblina px-4 py-3">
             <LeadsDelAgente leads={grupo.leads} />
           </td>
         </tr>
@@ -223,7 +223,7 @@ function LeadsDelAgente({ leads }: { leads: Lead[] }) {
 
   return (
     <table className="w-full text-left text-sm">
-      <thead className="text-xs text-neutral-500">
+      <thead className="text-xs text-tinta-tenue">
         <tr>
           <th scope="col" className="py-1 pr-4 font-medium">Cliente</th>
           <th scope="col" className="py-1 pr-4 font-medium">Propiedad</th>
@@ -234,13 +234,13 @@ function LeadsDelAgente({ leads }: { leads: Lead[] }) {
       </thead>
       <tbody>
         {leads.map(l => (
-          <tr key={l.id} className="border-t border-neutral-200">
-            <td className="py-2 pr-4 font-mono text-xs text-neutral-600">…{l.client_id.slice(-8)}</td>
-            <td className="py-2 pr-4 text-neutral-800">{propiedad(l.listing_id)}</td>
-            <td className="py-2 pr-4 text-neutral-700">{ETIQUETA_ETAPA[l.current_stage]}</td>
-            <td className="py-2 pr-4 text-neutral-700">{fechaHoraConAnio(l.created_at)}</td>
+          <tr key={l.id} className="border-t border-borde">
+            <td className="py-2 pr-4 font-mono text-xs text-tinta-suave">…{l.client_id.slice(-8)}</td>
+            <td className="py-2 pr-4 text-tinta">{propiedad(l.listing_id)}</td>
+            <td className="py-2 pr-4 text-tinta">{ETIQUETA_ETAPA[l.current_stage]}</td>
+            <td className="py-2 pr-4 text-tinta">{fechaHoraConAnio(l.created_at)}</td>
             <td className="py-2 text-right">
-              <Link href={`/leads/${l.id}`} className="text-neutral-700 underline hover:text-neutral-900">
+              <Link href={`/leads/${l.id}`} className="font-semibold text-plano underline hover:text-plano-hondo">
                 Abrir el lead
               </Link>
             </td>
@@ -259,11 +259,11 @@ function LeadsDelAgente({ leads }: { leads: Lead[] }) {
 function NombreAgenteFila({ agentId }: { agentId: string }) {
   const estado = useAgentes();
   const corto = `…${agentId.slice(-8)}`;
-  if (estado.estado === "cargando") return <span className="text-neutral-500">Cargando el nombre…</span>;
+  if (estado.estado === "cargando") return <span className="text-tinta-tenue">Cargando el nombre…</span>;
   const agente = estado.estado === "disponible" ? estado.porId.get(agentId) : undefined;
   if (agente) return <>{nombreAgente(agente)}</>;
   return (
-    <span className="text-neutral-600">
+    <span className="text-tinta-suave">
       {estado.estado === "error" ? "Nombre no disponible" : "Agente fuera de la lista"}{" "}
       <span className="font-mono text-xs">{corto}</span>
     </span>

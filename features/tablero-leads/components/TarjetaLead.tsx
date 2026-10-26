@@ -60,16 +60,16 @@ export function TarjetaLead({
       draggable={false}
       aria-describedby={descripcion}
       aria-busy={pendiente || undefined}
-      className={`block select-none rounded-lg border bg-white p-3 focus-visible:outline-2 focus-visible:outline-neutral-900 ${
+      className={`flex select-none flex-col gap-2 rounded-2xl border bg-white p-3.5 text-tinta transition-colors ${
         pendiente
-          ? "animate-pulse border-dashed border-neutral-400"
+          ? "animate-pulso border-dashed border-plano-borde"
           : enRiesgo
-            ? "border-red-500 ring-1 ring-red-500 hover:border-red-700 hover:ring-red-700"
-            : "border-neutral-200 hover:border-neutral-400"
+            ? "border-alerta ring-1 ring-alerta hover:border-alerta-hondo hover:ring-alerta-hondo"
+            : "border-borde hover:border-tinta"
       }`}
     >
       {enRiesgo && (
-        <p className="mb-2 flex items-center gap-1 text-xs font-medium text-red-700">
+        <p className="insignia gap-1.5 self-start whitespace-normal bg-alerta-claro text-alerta-hondo">
           <svg
             aria-hidden="true"
             viewBox="0 0 24 24"
@@ -86,43 +86,67 @@ export function TarjetaLead({
           Sin respuesta hace más de {umbral} h
         </p>
       )}
-      <p className="flex items-start justify-between gap-2 text-sm font-medium text-neutral-900">
-        {lead.client_name ?? "Cliente sin nombre registrado"}
-        {pendiente && <span className="shrink-0 text-xs font-normal text-neutral-500">Moviendo…</span>}
+      <p className="flex items-start justify-between gap-2">
+        <span className="text-base font-bold">{lead.client_name ?? "Cliente sin nombre registrado"}</span>
+        {pendiente && <span className="shrink-0 text-xs font-semibold text-plano-texto">Moviendo…</span>}
       </p>
-      <p className="mt-0.5 text-xs text-neutral-600">
-        {lead.listing_address ?? "Dirección no registrada"}
-        {" · "}
-        {lead.neighborhood ?? "barrio no registrado"}
+      <p className="text-sm text-tinta-suave">
+        {lead.listing_address ?? "Dirección no registrada"}, {lead.neighborhood ?? "barrio no registrado"}
       </p>
-      <p className="mt-2 flex items-center gap-2 text-xs">
-        <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-medium text-neutral-700">
-          {ETIQUETA_OPERACION[lead.operation_type]}
-        </span>
-        <span className="text-neutral-900">{formatPrecio(lead.asking_price)}</span>
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="font-display text-lg font-bold">{formatPrecio(lead.asking_price)}</span>
+        <span className="insignia bg-neblina text-tinta-suave">{ETIQUETA_OPERACION[lead.operation_type]}</span>
       </p>
       {esAdmin && (
-        <NombreAgente agentId={lead.agent_id} className="mt-1.5 block text-xs text-neutral-500" />
+        <NombreAgente agentId={lead.agent_id} prefijo="A cargo de " className="block text-[13px] text-tinta-tenue" />
       )}
 
-      <div className="mt-3 border-t border-neutral-100 pt-2 text-xs text-neutral-500">
-        {ultima ? (
-          <>
-            <p className="flex items-center gap-1.5">
-              <IconoInteraccion tipo={ultima.type} />
-              <span className="sr-only">{ETIQUETA_TIPO[ultima.type]},</span>
-              {/* Servidor y navegador pueden calcular "hace N" en minutos distintos. */}
-              <time dateTime={ultima.occurred_at} title={fechaHoraLarga(ultima.occurred_at)} suppressHydrationWarning>
-                {tiempoRelativo(ultima.occurred_at)}
-              </time>
-            </p>
-            {texto && <p className="mt-1 line-clamp-2 text-neutral-600">{texto}</p>}
-          </>
-        ) : (
-          <p>Sin interacciones todavía</p>
-        )}
-      </div>
+      {ultima ? (
+        <div className="mt-1 flex flex-col gap-1.5 border-t border-hoja pt-2.5">
+          {texto && <Burbuja tipo={ultima.type} direccion={ultima.direction}>{texto}</Burbuja>}
+          <p className={`flex items-center gap-1.5 text-[13px] text-tinta-tenue ${ultima.direction === "OUTBOUND" && texto ? "self-end" : ""}`}>
+            <IconoInteraccion tipo={ultima.type} />
+            <span className="sr-only">{ETIQUETA_TIPO[ultima.type]},</span>
+            {/* Servidor y navegador pueden calcular "hace N" en minutos distintos. */}
+            <time dateTime={ultima.occurred_at} title={fechaHoraLarga(ultima.occurred_at)} suppressHydrationWarning>
+              {tiempoRelativo(ultima.occurred_at)}
+            </time>
+          </p>
+        </div>
+      ) : (
+        <p className="mt-1 border-t border-hoja pt-2.5 text-[13px] text-tinta-tenue">Sin interacciones todavía</p>
+      )}
     </Link>
+  );
+}
+
+/**
+ * La última interacción con la forma del chat: lo que escribió el cliente a
+ * la izquierda en gris, lo que se le respondió a la derecha en azul, las
+ * notas internas en amarillo y los cambios de etapa sin burbuja.
+ */
+function Burbuja({
+  tipo, direccion, children,
+}: {
+  tipo: LastInteraction["type"];
+  direccion: LastInteraction["direction"];
+  children: string;
+}) {
+  if (tipo === "STATUS_CHANGE") {
+    return <p className="line-clamp-2 text-sm text-tinta-suave">{children}</p>;
+  }
+  // El recorte va en un span interno: con el padding en el mismo elemento,
+  // la tercera línea se asomaría por debajo.
+  const estilo =
+    tipo === "NOTE"
+      ? "self-end rounded-[14px] bg-sol-claro text-[#4a3300]"
+      : direccion === "OUTBOUND"
+        ? "self-end rounded-[14px] rounded-br-[4px] bg-plano text-white"
+        : "self-start rounded-[14px] rounded-bl-[4px] bg-neblina text-tinta";
+  return (
+    <p className={`max-w-full px-3 py-2 text-sm ${estilo}`}>
+      <span className="line-clamp-2">{children}</span>
+    </p>
   );
 }
 
@@ -138,7 +162,7 @@ function IconoInteraccion({ tipo }: { tipo: LastInteraction["type"] }) {
     <svg
       aria-hidden="true"
       viewBox="0 0 24 24"
-      className="h-3.5 w-3.5 shrink-0 text-neutral-400"
+      className="h-3.5 w-3.5 shrink-0"
       fill="none"
       stroke="currentColor"
       strokeWidth={2}

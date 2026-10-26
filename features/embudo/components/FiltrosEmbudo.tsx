@@ -60,14 +60,14 @@ export function FiltrosEmbudo({ filtros }: { filtros: Filtros }) {
   }
 
   const hayFiltros = PARAMS.some(p => filtros[p]);
-  const campo = "mt-1 w-full rounded border border-neutral-300 bg-white p-2 text-sm text-neutral-900 disabled:opacity-60";
+  const campo = "campo";
 
   return (
     // noValidate: `min`/`max` de las fechas solo guían el selector; si el
     // navegador validara, frenaría el envío con su globo y no con este mensaje.
-    <form onSubmit={aplicar} noValidate className="mb-6 rounded-lg border border-neutral-200 p-4">
+    <form onSubmit={aplicar} noValidate className="panel mb-6 px-6 py-5">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_2fr_1fr_1.5fr]">
-        <label className="block text-sm font-medium text-neutral-700">
+        <label className="etiqueta">
           Creado desde
           <input
             type="date"
@@ -78,7 +78,7 @@ export function FiltrosEmbudo({ filtros }: { filtros: Filtros }) {
           />
         </label>
 
-        <label className="block text-sm font-medium text-neutral-700">
+        <label className="etiqueta">
           Creado hasta
           <input
             type="date"
@@ -89,7 +89,7 @@ export function FiltrosEmbudo({ filtros }: { filtros: Filtros }) {
           />
         </label>
 
-        <label className="block text-sm font-medium text-neutral-700">
+        <label className="etiqueta">
           Propiedad
           <select
             value={valores.propiedad ?? ""}
@@ -105,13 +105,13 @@ export function FiltrosEmbudo({ filtros }: { filtros: Filtros }) {
             ))}
           </select>
           {propiedades.isError && (
-            <span className="mt-1 block text-xs font-normal text-red-700">
+            <span className="mt-1 block text-xs font-normal text-alerta-hondo">
               No se pudieron cargar las propiedades.
             </span>
           )}
         </label>
 
-        <label className="block text-sm font-medium text-neutral-700">
+        <label className="etiqueta">
           Operación
           <select
             value={valores.operacion ?? ""}
@@ -131,13 +131,13 @@ export function FiltrosEmbudo({ filtros }: { filtros: Filtros }) {
         />
       </div>
 
-      {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
+      {error && <p className="mt-3 text-sm font-semibold text-alerta-hondo">{error}</p>}
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
           type="submit"
           disabled={pendiente}
-          className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+          className="btn btn-primario"
         >
           {pendiente ? "Filtrando…" : "Ver el embudo"}
         </button>
@@ -146,7 +146,7 @@ export function FiltrosEmbudo({ filtros }: { filtros: Filtros }) {
             type="button"
             onClick={quitar}
             disabled={pendiente}
-            className="rounded border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 disabled:opacity-40"
+            className="btn btn-suave"
           >
             Quitar los filtros
           </button>

@@ -74,13 +74,13 @@ function Campana({ agenteId }: { agenteId: string }) {
         aria-controls={idLista}
         aria-label={etiqueta}
         title={etiqueta}
-        className="relative flex items-center rounded-full p-1.5 text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
+        className="relative flex h-10 w-10 items-center justify-center rounded-full border border-borde bg-white text-tinta hover:border-tinta"
       >
         <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.8}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
           <path strokeLinecap="round" strokeLinejoin="round" d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
         </svg>
-        <span className="absolute -right-1 -top-1 min-w-[1.25rem] rounded-full bg-amber-500 px-1 text-center text-xs font-semibold leading-5 text-white">
+        <span className="absolute -right-1 -top-1 min-w-[1.25rem] rounded-full bg-sol px-1 text-center text-xs font-extrabold leading-5 text-tinta">
           {conteo}
         </span>
       </button>
@@ -88,12 +88,12 @@ function Campana({ agenteId }: { agenteId: string }) {
       {abierta && (
         <div
           id={idLista}
-          className="absolute right-0 z-20 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-neutral-200 bg-white shadow-lg"
+          className="panel absolute right-0 z-20 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden shadow-[0_16px_40px_rgba(19,48,58,0.2)]"
         >
-          <p className="border-b border-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900">
+          <p className="border-b border-hoja px-4 py-3 text-sm font-bold text-tinta">
             {etiqueta}
           </p>
-          <ul className="max-h-96 divide-y divide-neutral-100 overflow-y-auto">
+          <ul className="max-h-96 divide-y divide-hoja overflow-y-auto">
             {data.map(t => (
               <Recordatorio key={t.id} tarea={t} alAbrir={() => setAbierta(false)} />
             ))}
@@ -111,16 +111,16 @@ function Recordatorio({ tarea, alAbrir }: { tarea: TareaAgencia; alAbrir: () => 
       <Link
         href={`/leads/${tarea.lead_id}`}
         onClick={alAbrir}
-        className="block px-4 py-3 text-sm hover:bg-neutral-50"
+        className="block px-4 py-3 text-sm hover:bg-neblina"
       >
-        <span className={tarea.note ? "text-neutral-900" : "italic text-neutral-500"}>
+        <span className={tarea.note ? "text-tinta" : "italic text-tinta-tenue"}>
           {tarea.note ?? "Recordatorio sin nota"}
         </span>
-        <span className="mt-1 block text-xs text-neutral-500">
+        <span className="mt-1 block text-xs text-tinta-tenue">
           Venció el {fechaHoraLarga(tarea.due_at)} ({tiempoRelativo(tarea.due_at)})
         </span>
-        {origen && <span className="mt-1 block text-xs text-neutral-400">{origen}</span>}
-        <span className="mt-1 block text-xs font-medium text-blue-700">Ver el lead</span>
+        {origen && <span className="mt-1 block text-xs text-tinta-tenue">{origen}</span>}
+        <span className="mt-1 block text-xs font-medium text-plano-texto">Ver el lead</span>
       </Link>
     </li>
   );

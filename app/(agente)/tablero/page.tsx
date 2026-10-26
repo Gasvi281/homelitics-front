@@ -62,11 +62,11 @@ export default async function TableroPage({
   ]);
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-8">
-      <h1 className="text-lg font-semibold text-neutral-900">
+    <main className="px-9 py-8">
+      <h1 className="titulo-pagina">
         {filtros.etapa === "LOST" ? "Leads perdidos" : filtros.etapa === "WON" ? "Leads ganados" : "Tablero de leads"}
       </h1>
-      <p className="mt-1 mb-6 text-sm text-neutral-600">
+      <p className="mt-1 mb-6 text-base text-tinta-suave">
         {cerrados
           ? "Leads ya cerrados de la agencia, solo para consulta. Abre uno para ver su historial y el motivo."
           : "Leads abiertos de la agencia, del que tuvo actividad más reciente al más viejo."}
