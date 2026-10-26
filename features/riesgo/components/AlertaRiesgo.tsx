@@ -56,7 +56,7 @@ function Contador({ agente, umbral }: { agente: Agent; umbral: number }) {
     <Link
       href={href}
       title={`Sin respuesta hace más de ${horas} h`}
-      className="rounded-full bg-red-50 px-3 py-1 text-sm font-medium text-red-700 ring-1 ring-red-200 hover:bg-red-100"
+      className="inline-flex h-9 items-center gap-1.5 rounded-full bg-alerta-claro px-4 text-sm font-bold text-alerta-hondo ring-1 ring-alerta-borde hover:ring-alerta"
     >
       {n === 1 ? "1 lead sin respuesta" : `${n} leads sin respuesta`}
     </Link>

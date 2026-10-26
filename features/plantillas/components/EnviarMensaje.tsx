@@ -80,13 +80,13 @@ export function EnviarMensaje({
   const enviando = registrar.isPending;
 
   return (
-    <div className="mt-3 rounded border border-neutral-200 p-3">
-      <p className="text-xs text-neutral-500">
+    <div className="mt-3 rounded-2xl border border-borde p-3.5">
+      <p className="text-xs text-tinta-tenue">
         El mensaje lo envías tú desde tu canal; la app solo lo registra en la línea de tiempo.
       </p>
 
       {largo && (
-        <p role="alert" className="mt-2 text-sm text-red-700">
+        <p role="alert" className="mt-2 text-sm text-alerta-hondo">
           El mensaje pasa de {MAX_MENSAJE} caracteres; acórtalo para poder registrarlo.
         </p>
       )}
@@ -95,13 +95,13 @@ export function EnviarMensaje({
         type="button"
         onClick={copiar}
         disabled={!texto || largo || enviando}
-        className="mt-2 rounded bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+        className="btn btn-sm mt-2 bg-tinta text-white hover:bg-tinta-hondo"
       >
         {listoParaConfirmar ? "Copiar de nuevo" : "Copiar mensaje"}
       </button>
 
       {copiado !== null && !listoParaConfirmar && (
-        <p className="mt-1 text-xs text-amber-800">
+        <p className="mt-1 text-xs text-sol-texto">
           El mensaje cambió después de copiarlo (lo editaste o llegó un dato que faltaba). Cópialo otra vez
           para registrar lo que vas a enviar.
         </p>
@@ -109,13 +109,13 @@ export function EnviarMensaje({
 
       {listoParaConfirmar && (
         <div className="mt-3">
-          <p role="status" className="text-xs text-neutral-700">
+          <p role="status" className="text-xs text-tinta">
             {copiaManual
               ? "Tu navegador no dejó copiar. El texto quedó seleccionado: cópialo con Ctrl+C (o Cmd+C)."
               : "Mensaje copiado. Pégalo y envíalo desde tu canal."}
           </p>
 
-          <label htmlFor="canal-envio" className="mt-2 block text-xs font-medium text-neutral-700">
+          <label htmlFor="canal-envio" className="mt-2 block text-xs font-bold text-tinta">
             ¿Por dónde lo enviaste?
           </label>
           <select
@@ -123,7 +123,7 @@ export function EnviarMensaje({
             value={canal}
             onChange={e => setCanalElegido(e.target.value as Channel)}
             disabled={enviando}
-            className="mt-1 block rounded border border-neutral-300 px-2 py-1.5 text-sm text-neutral-900"
+            className="mt-1 block rounded border border-borde-fuerte px-2 py-1.5 text-sm text-tinta"
           >
             {Channel.options.map(c => (
               <option key={c} value={c}>
@@ -134,8 +134,8 @@ export function EnviarMensaje({
           </select>
 
           {confirmando ? (
-            <div role="alertdialog" aria-labelledby="confirmar-faltantes" className="mt-2 rounded border border-amber-300 bg-amber-50 p-2">
-              <p id="confirmar-faltantes" className="text-sm text-amber-900">
+            <div role="alertdialog" aria-labelledby="confirmar-faltantes" className="mt-2 rounded-2xl bg-sol-claro p-3">
+              <p id="confirmar-faltantes" className="text-sm text-sol-texto">
                 El mensaje todavía tiene datos marcados como <span className="font-mono">[falta: …]</span>.
                 ¿Lo enviaste así?
               </p>
@@ -144,7 +144,7 @@ export function EnviarMensaje({
                   type="button"
                   onClick={yaLoEnvie}
                   disabled={enviando}
-                  className="rounded bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+                  className="btn btn-sm bg-tinta text-white hover:bg-tinta-hondo"
                 >
                   {enviando ? "Registrando…" : "Sí, lo envié así"}
                 </button>
@@ -152,7 +152,7 @@ export function EnviarMensaje({
                   type="button"
                   onClick={() => setConfirmando(false)}
                   disabled={enviando}
-                  className="rounded border border-neutral-300 px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
+                  className="btn btn-sm btn-suave"
                 >
                   Volver a revisarlo
                 </button>
@@ -163,7 +163,7 @@ export function EnviarMensaje({
               type="button"
               onClick={yaLoEnvie}
               disabled={enviando}
-              className="mt-2 rounded bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+              className="btn btn-sm mt-2 bg-tinta text-white hover:bg-tinta-hondo"
             >
               {enviando ? "Registrando…" : "Ya lo envié"}
             </button>
@@ -172,11 +172,11 @@ export function EnviarMensaje({
       )}
 
       {registrado && (
-        <p role="status" className="mt-2 text-sm text-green-800">
+        <p role="status" className="mt-2 text-sm text-montana-hondo">
           Listo: el mensaje quedó registrado en la línea de tiempo.
         </p>
       )}
-      {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-sm text-alerta-hondo">{error}</p>}
     </div>
   );
 }

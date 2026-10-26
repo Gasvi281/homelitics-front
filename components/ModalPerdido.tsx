@@ -61,18 +61,18 @@ export function ModalPerdido({
         e.preventDefault();
         if (!enviando) alCancelar();
       }}
-      className="m-auto w-[min(30rem,calc(100%-2rem))] rounded-lg bg-white p-6 shadow-xl backdrop:bg-black/40"
+      className="dialogo"
     >
       <form onSubmit={confirmar}>
-        <h2 id="perdido-titulo" className="text-base font-semibold text-neutral-900">
+        <h2 id="perdido-titulo" className="font-display text-[30px] leading-tight font-extrabold tracking-[-0.025em]">
           Marcar {cliente ?? "este lead"} como perdido
         </h2>
-        <p id="perdido-aviso" className="mt-2 text-sm text-neutral-600">
+        <p id="perdido-aviso" className="mt-2 text-base leading-relaxed text-tinta-suave">
           Es definitivo: el lead sale del tablero activo, no se puede volver a mover de etapa y
           se cancelan sus visitas abiertas.
         </p>
 
-        <label className="mt-5 block text-sm font-medium text-neutral-700">
+        <label className="etiqueta mt-6">
           Motivo
           <select
             autoFocus
@@ -80,7 +80,7 @@ export function ModalPerdido({
             value={motivo}
             onChange={e => setMotivo(e.target.value as LostReason | "")}
             disabled={enviando}
-            className="mt-1 w-full rounded border border-neutral-300 bg-white p-2 text-sm text-neutral-900 disabled:opacity-60"
+            className="campo"
           >
             <option value="">Elige un motivo</option>
             {LostReason.options.map(codigo => (
@@ -89,8 +89,8 @@ export function ModalPerdido({
           </select>
         </label>
 
-        <label className="mt-4 block text-sm font-medium text-neutral-700">
-          Nota <span className="font-normal text-neutral-500">(opcional)</span>
+        <label className="etiqueta mt-5">
+          Nota <span className="font-normal text-tinta-tenue">(opcional)</span>
           <textarea
             value={nota}
             onChange={e => setNota(e.target.value)}
@@ -99,31 +99,22 @@ export function ModalPerdido({
             disabled={enviando}
             aria-describedby="perdido-contador"
             placeholder="Qué pasó, para tenerlo en el historial…"
-            className="mt-1 w-full rounded border border-neutral-300 p-2 text-sm text-neutral-900 disabled:opacity-60"
+            className="campo"
           />
         </label>
-        <p id="perdido-contador" className="mt-1 text-right text-xs text-neutral-500">
+        <p id="perdido-contador" className="mt-1 text-right text-xs text-tinta-tenue">
           {nota.length} / {MAX_NOTA}
         </p>
 
         {error && (
-          <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>
+          <p role="alert" className="mt-3 text-sm font-semibold text-alerta-hondo">{error}</p>
         )}
 
-        <div className="mt-6 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={alCancelar}
-            disabled={enviando}
-            className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-40"
-          >
-            Cancelar
+        <div className="mt-7 flex justify-end gap-2.5">
+          <button type="button" onClick={alCancelar} disabled={enviando} className="btn btn-secundario">
+            Volver
           </button>
-          <button
-            type="submit"
-            disabled={!motivo || enviando}
-            className="rounded-md bg-red-700 px-3 py-2 text-sm font-medium text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-40"
-          >
+          <button type="submit" disabled={!motivo || enviando} className="btn btn-peligro-lleno">
             {enviando ? "Marcando…" : "Marcar como perdido"}
           </button>
         </div>

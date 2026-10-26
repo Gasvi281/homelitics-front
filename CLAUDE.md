@@ -167,6 +167,15 @@ una base de datos local, y la app se niega a arrancar con ese modo si no es así
 - Copys en español de Colombia, en tono llano, sin mayúsculas sostenidas.
   Un botón dice qué hace: "Pedir la visita", no "Enviar".
 
+## Estilo visual
+
+Los colores y piezas compartidas viven en `app/globals.css`. Usa los tokens
+(`bg-plano`, `text-tinta`, `bg-neblina`, `text-alerta-hondo`…) y las clases
+`btn btn-primario`, `campo`, `etiqueta`, `panel`, `insignia`, `dialogo`; no
+los grises, rojos o verdes de fábrica de Tailwind. Estados con `Aviso`
+(`info`, `error`, `exito`, `espera`) y cargas con `Cargando`. Por ahora el
+diseño es solo para escritorio.
+
 ## Estado actual
 
 Tareas 2.0 a 2.12 hechas y probadas contra el API real (`docs/PROGRESO.md`).

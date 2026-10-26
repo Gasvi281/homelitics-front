@@ -48,20 +48,16 @@ export function EtapaLead({ leadInicial }: { leadInicial: Lead }) {
         <NombreAgente
           agentId={lead.agent_id}
           prefijo="A cargo de "
-          className="mt-3 block text-sm text-neutral-600"
+          className="mt-3 block text-[15px] text-tinta-suave"
         />
       )}
 
       {!esTerminal(lead.current_stage) && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setAbierto(true)}
-            className="rounded border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
-          >
+        <div className="mt-5 flex flex-col gap-2.5">
+          {esAdmin && <ReasignarLead lead={lead} />}
+          <button type="button" onClick={() => setAbierto(true)} className="btn btn-peligro w-full">
             Marcar como perdido
           </button>
-          {esAdmin && <ReasignarLead lead={lead} />}
         </div>
       )}
 

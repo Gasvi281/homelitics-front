@@ -67,19 +67,19 @@ export function ResponderConPlantilla({
   }
 
   return (
-    <section aria-labelledby="titulo-plantilla" className="mt-6 border-t border-neutral-200 pt-4">
-      <h3 id="titulo-plantilla" className="text-sm font-semibold text-neutral-900">
+    <section aria-labelledby="titulo-plantilla" className="mt-6 border-t border-borde pt-4">
+      <h3 id="titulo-plantilla" className="text-[15px] font-bold text-tinta">
         Responder con plantilla
       </h3>
 
-      <label htmlFor="plantilla" className="mt-3 block text-xs font-medium text-neutral-700">
+      <label htmlFor="plantilla" className="mt-3 block text-xs font-bold text-tinta">
         Plantilla
       </label>
       <select
         id="plantilla"
         value={actual.clave}
         onChange={e => elegir(e.target.value as ClavePlantilla)}
-        className="mt-1 block w-full rounded border border-neutral-300 px-2 py-1.5 text-sm text-neutral-900"
+        className="campo h-10 text-sm"
       >
         {ordenadas.map(p => (
           <option key={p.clave} value={p.clave}>
@@ -90,15 +90,15 @@ export function ResponderConPlantilla({
         ))}
       </select>
       {actual.clave === sugerida?.clave && (
-        <p className="mt-1 text-xs text-neutral-500">
-          <span className="rounded bg-neutral-900 px-1.5 py-0.5 font-semibold text-white">Sugerida</span>{" "}
+        <p className="mt-1 text-xs text-tinta-tenue">
+          <span className="insignia bg-plano text-white">Sugerida</span>{" "}
           para la etapa en la que está este lead.
         </p>
       )}
 
       {faltantes.length > 0 && <AvisoFaltantes faltantes={faltantes} />}
 
-      <label htmlFor="mensaje-plantilla" className="mt-3 block text-xs font-medium text-neutral-700">
+      <label htmlFor="mensaje-plantilla" className="mt-3 block text-xs font-bold text-tinta">
         Mensaje para el cliente
       </label>
       <textarea
@@ -107,16 +107,16 @@ export function ResponderConPlantilla({
         value={mensaje}
         onChange={e => setEdicion({ clave: actual.clave, texto: e.target.value })}
         rows={7}
-        className="mt-1 w-full rounded border border-neutral-300 p-2 text-sm text-neutral-900"
+        className="mt-1 w-full rounded border border-borde-fuerte p-2 text-sm text-tinta"
       />
-      <p className="text-xs text-neutral-500">
+      <p className="text-xs text-tinta-tenue">
         Lo que cambies aquí es solo para este mensaje: la plantilla queda igual.
       </p>
       {editado !== null && (
         <button
           type="button"
           onClick={() => setEdicion(null)}
-          className="mt-1 text-xs font-medium text-neutral-700 underline"
+          className="mt-1 text-xs font-medium text-tinta underline"
         >
           Deshacer mis cambios a este mensaje
         </button>
@@ -162,7 +162,7 @@ function marcador(f: Faltante): string {
 
 function AvisoFaltantes({ faltantes }: { faltantes: Faltante[] }) {
   return (
-    <div role="status" className="mt-3 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">
+    <div role="status" className="mt-3 rounded-2xl bg-sol-claro p-3 text-sm text-sol-texto">
       <p className="font-medium">Faltan datos en este mensaje:</p>
       <ul className="mt-1 list-disc pl-5">
         {faltantes.map(f => (
@@ -182,7 +182,7 @@ function AccionesPlantilla({
 }: { tienePropia: boolean; alEditar: () => void; alVolver: () => boolean }) {
   const [error, setError] = useState<string | null>(null);
   const boton =
-    "rounded border border-neutral-300 px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-50";
+    "inline-flex h-8 items-center rounded-full border-[1.5px] border-borde-fuerte bg-white px-3 text-xs font-semibold text-tinta hover:border-tinta disabled:opacity-40";
 
   return (
     <div className="mt-3">
@@ -203,9 +203,9 @@ function AccionesPlantilla({
         )}
       </div>
       {tienePropia && (
-        <p className="mt-1 text-xs text-neutral-500">Estás usando tu versión, guardada solo en este navegador.</p>
+        <p className="mt-1 text-xs text-tinta-tenue">Estás usando tu versión, guardada solo en este navegador.</p>
       )}
-      {error && <p role="alert" className="mt-1 text-sm text-red-700">{error}</p>}
+      {error && <p role="alert" className="mt-1 text-sm text-alerta-hondo">{error}</p>}
     </div>
   );
 }
@@ -231,8 +231,8 @@ function EditorPlantilla({
   }
 
   return (
-    <form onSubmit={guardar} className="mt-3 rounded border border-neutral-200 p-3" noValidate>
-      <label htmlFor={id} className="block text-xs font-medium text-neutral-700">
+    <form onSubmit={guardar} className="mt-3 rounded-2xl border border-borde p-3.5" noValidate>
+      <label htmlFor={id} className="block text-xs font-bold text-tinta">
         Tu plantilla
       </label>
       <textarea
@@ -244,34 +244,34 @@ function EditorPlantilla({
         }}
         maxLength={MAX_PLANTILLA}
         rows={7}
-        className="mt-1 w-full rounded border border-neutral-300 p-2 font-mono text-xs text-neutral-900"
+        className="mt-1 w-full rounded border border-borde-fuerte p-2 font-mono text-xs text-tinta"
       />
-      <p className="text-xs text-neutral-500">
+      <p className="text-xs text-tinta-tenue">
         Usa las variables entre llaves; se llenan con los datos de cada lead:
       </p>
       <ul className="mt-1 flex flex-wrap gap-1">
         {Object.entries(VARIABLES).map(([variable, etiqueta]) => (
-          <li key={variable} title={etiqueta} className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-xs text-neutral-700">
+          <li key={variable} title={etiqueta} className="rounded-full bg-hoja px-2.5 py-0.5 font-mono text-xs text-tinta">
             {`{${variable}}`}
           </li>
         ))}
       </ul>
-      <p className="mt-2 text-xs text-neutral-500">
+      <p className="mt-2 text-xs text-tinta-tenue">
         Se guarda solo en este navegador: en otro equipo, o si borras los datos del navegador, verás la
         original.
       </p>
-      {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-sm text-alerta-hondo">{error}</p>}
       <div className="mt-2 flex flex-wrap gap-2">
         <button
           type="submit"
-          className="rounded bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white"
+          className="btn btn-sm bg-tinta text-white hover:bg-tinta-hondo"
         >
           Guardar como mi plantilla
         </button>
         <button
           type="button"
           onClick={() => alTerminar(false)}
-          className="rounded border border-neutral-300 px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
+          className="btn btn-sm btn-suave"
         >
           Cancelar
         </button>

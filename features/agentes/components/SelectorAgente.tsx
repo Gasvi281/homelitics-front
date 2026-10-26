@@ -54,7 +54,7 @@ export function SelectorAgente({
 
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-medium text-neutral-700">
+      <label htmlFor={id} className="etiqueta">
         {etiqueta}
       </label>
       <select
@@ -65,7 +65,7 @@ export function SelectorAgente({
         required={requerido}
         autoFocus={autoFocus}
         aria-describedby={ayuda ? idAyuda : undefined}
-        className="mt-1 w-full rounded border border-neutral-300 bg-white p-2 text-sm text-neutral-900 disabled:opacity-60"
+        className="campo"
       >
         <option value="">{textoVacio}</option>
         {opciones.map(a => (
@@ -77,7 +77,7 @@ export function SelectorAgente({
       {ayuda && (
         <p
           id={idAyuda}
-          className={`mt-1 text-xs ${estado.estado === "error" ? "text-red-700" : "text-neutral-500"}`}
+          className={`mt-1 text-xs ${estado.estado === "error" ? "text-alerta-hondo" : "text-tinta-tenue"}`}
         >
           {ayuda}
         </p>

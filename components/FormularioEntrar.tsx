@@ -20,10 +20,10 @@ export function FormularioEntrar({ siguiente }: { siguiente: string | null }) {
   }, []);
 
   return (
-    <form action={accion} className="space-y-4">
+    <form action={accion} className="flex flex-col gap-5">
       {siguiente && <input type="hidden" name="siguiente" value={siguiente} />}
 
-      <label className="block text-sm font-medium text-neutral-700">
+      <label className="etiqueta">
         Correo
         <input
           type="email"
@@ -33,11 +33,11 @@ export function FormularioEntrar({ siguiente }: { siguiente: string | null }) {
           autoFocus
           defaultValue={estado.correo}
           disabled={enviando}
-          className="mt-1 w-full rounded border border-neutral-300 p-2 text-sm text-neutral-900 disabled:opacity-60"
+          className="campo h-13 rounded-[14px] px-4.5 text-base"
         />
       </label>
 
-      <label className="block text-sm font-medium text-neutral-700">
+      <label className="etiqueta">
         Contraseña
         <input
           type="password"
@@ -45,18 +45,19 @@ export function FormularioEntrar({ siguiente }: { siguiente: string | null }) {
           autoComplete="current-password"
           required
           disabled={enviando}
-          className="mt-1 w-full rounded border border-neutral-300 p-2 text-sm text-neutral-900 disabled:opacity-60"
+          aria-invalid={estado.error ? true : undefined}
+          className="campo h-13 rounded-[14px] px-4.5 text-base aria-invalid:border-alerta"
         />
       </label>
 
       {estado.error && (
-        <p role="alert" className="text-sm text-red-700">{estado.error}</p>
+        <p role="alert" className="text-sm font-semibold text-alerta-hondo">{estado.error}</p>
       )}
 
       <button
         type="submit"
         disabled={enviando}
-        className="w-full rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40"
+        className="btn btn-lg btn-primario w-full"
       >
         {enviando ? "Entrando…" : "Entrar al panel"}
       </button>

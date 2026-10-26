@@ -1,6 +1,7 @@
 import { apiPublico, HomeliticsError } from "@/lib/homelitics";
 import { Aviso } from "@/components/Aviso";
 import { CitaAcciones } from "@/components/CitaAcciones";
+import { MarcoCliente, NotaAsistente } from "@/components/MarcoCliente";
 
 /**
  * Tarea 2.3 — HU-02. Mover o cancelar una cita ya creada (tarea 2.2).
@@ -39,8 +40,16 @@ export default async function CitaPage({
   }
 
   return (
-    <Contenedor>
-      <h1 className="text-lg font-semibold text-neutral-900">Tu visita</h1>
+    <MarcoCliente
+      paso={3}
+      lateral={
+        <NotaAsistente>
+          Si te sale algo, mueve la visita aquí con tiempo. Esta página se actualiza sola si tu
+          asesor cambia algo.
+        </NotaAsistente>
+      }
+    >
+      <h1 className="titulo-pagina">Tu visita</h1>
 
       <CitaAcciones
         appointmentId={cita.id}
@@ -48,12 +57,12 @@ export default async function CitaPage({
         direccion={listing.address}
         canalContacto={lead.source_channel}
       />
-    </Contenedor>
+    </MarcoCliente>
   );
 }
 
 function Contenedor({ children }: { children: React.ReactNode }) {
-  return <main className="mx-auto max-w-3xl px-4 py-8">{children}</main>;
+  return <MarcoCliente paso={3}>{children}</MarcoCliente>;
 }
 
 function mensajeError(e: unknown): string {

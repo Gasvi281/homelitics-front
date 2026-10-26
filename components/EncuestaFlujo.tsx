@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { apiPublico, HomeliticsError } from "@/lib/homelitics-navegador";
 import type { Appointment, AppointmentStatus } from "@/lib/schemas";
 import { Aviso } from "@/components/Aviso";
+import { Cargando } from "@/components/Cargando";
 import { EncuestaAcciones } from "@/components/EncuestaAcciones";
 
 type Estado =
@@ -123,39 +124,40 @@ export function EncuestaFlujo({
   }
 
   if (estado.tipo === "verificando") {
-    return <Aviso>Un momento, estamos revisando tu visita…</Aviso>;
+    return <Cargando compacto mensaje="Un momento, estamos revisando tu visita…" />;
   }
   if (estado.tipo === "preguntar_asistencia") {
     return (
-      <div className="rounded-lg border border-neutral-200 p-4 text-sm text-neutral-700">
-        <p>Antes de la encuesta: ¿sí pudiste ir a la visita?</p>
-        <div className="mt-3 flex flex-col gap-3 sm:flex-row">
-          <button
-            type="button"
-            onClick={confirmarAsistencia}
-            className="rounded bg-neutral-900 px-4 py-2 text-center font-medium text-white"
-          >
+      <section className="panel flex flex-col gap-7 px-12 py-10">
+        <h2 className="font-display text-[44px] leading-none font-extrabold tracking-[-0.03em]">
+          ¿Pudiste ir a la visita?
+        </h2>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={confirmarAsistencia} className="btn h-15 px-9 text-lg btn-exito">
             Sí, fui a la visita
           </button>
           <button
             type="button"
             onClick={() => setEstado({ tipo: "no_asistio" })}
-            className="rounded border border-neutral-300 px-4 py-2 text-center font-medium text-neutral-700"
+            className="btn h-15 px-8 text-lg btn-secundario"
           >
             No, no pude ir
           </button>
         </div>
-      </div>
+        <p className="text-[15px] text-tinta-suave">
+          Si fuiste, te hacemos tres preguntas rápidas sobre la propiedad.
+        </p>
+      </section>
     );
   }
   if (estado.tipo === "completando") {
-    return <p className="text-sm text-neutral-500">Guardando…</p>;
+    return <Cargando compacto mensaje="Guardando…" />;
   }
   if (estado.tipo === "no_asistio") {
     return (
       <Aviso>
         Entendido, no marcamos nada. Si quieres, puedes{" "}
-        <Link className="underline" href={`/citas/${appointmentId}`}>
+        <Link className="font-bold underline" href={`/citas/${appointmentId}`}>
           buscar un nuevo horario para la visita
         </Link>
         .
@@ -169,7 +171,7 @@ export function EncuestaFlujo({
     return <Aviso variante="error">{estado.mensaje}</Aviso>;
   }
   if (estado.tipo === "ya_enviada") {
-    return <Aviso>Ya enviaste tu encuesta sobre esta visita. Gracias por tu tiempo.</Aviso>;
+    return <Aviso variante="exito">Ya enviaste tu encuesta sobre esta visita. Gracias por tu tiempo.</Aviso>;
   }
 
   return <EncuestaAcciones appointmentId={appointmentId} />;
