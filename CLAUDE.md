@@ -68,6 +68,11 @@ siempre:
 
 - El token jamás se envía al cliente ni se guarda en `localStorage`; la sesión
   vive en una cookie `httpOnly`. Un token de agente ve **toda la agencia**.
+  **Única excepción:** el asistente de insights del admin
+  (`docs/INSIGHTS.md`), que es otro servicio y tarda hasta un minuto, más que
+  el tope de las funciones SSR de Amplify. La Server Action `tokenInsights()`
+  entrega el token solo a un `TEAM_ADMIN`, justo antes de cada mensaje, y
+  queda en memoria. No la reutilices para nada más.
 - No hay problema de CORS porque la llamada real sale de servidor a servidor.
 - Un Server Component importa `api` de `lib/homelitics.ts`; un Client Component
   lo importa de `lib/homelitics-navegador.ts`. Se ven exactamente igual (mismas
@@ -203,6 +208,11 @@ con filtros en la URL y nunca marca nada como leído. La lógica está en
 `features/avisos/` (`texto.ts`, `claves.ts`, `hooks.ts`); la relectura tras
 cualquier otra mutación vive en el `MutationCache` de `app/providers.tsx`.
 
+Asistente de insights del admin (`docs/INSIGHTS.md`, `features/insights/`):
+botón flotante y panel lateral en todas las pantallas de `(agente)`, solo
+para `TEAM_ADMIN`. Hecho el 2026-10-26; falta probarlo contra el servicio
+real.
+
 ## Cómo trabajar aquí
 
 - Una tarea del sprint por cambio. No mezcles 2.1 con 2.2.
@@ -220,7 +230,9 @@ cualquier otra mutación vive en el `MutationCache` de `app/providers.tsx`.
 `jspdf` y `jspdf-autotable` (el PDF del embudo, HU-17: el API solo exporta
 CSV y deja el PDF al front; se cargan con `import()` al hacer clic en
 `features/embudo/components/ExportarEmbudo.tsx` y
-`features/riesgo/components/ExportarRiesgo.tsx`, nunca con la página).
+`features/riesgo/components/ExportarRiesgo.tsx`, nunca con la página),
+`react-markdown`, `remark-gfm` y `@tailwindcss/typography` (las respuestas en
+markdown del asistente de insights, `docs/INSIGHTS.md`).
 
 ## Variables de entorno
 
@@ -235,7 +247,12 @@ NEXT_PUBLIC_USE_MOCKS=true
 MOCK_AGENT_ROLE=TEAM_ADMIN
 USE_MOCK_TAREAS_AGENCIA=true
 USE_MOCK_RIESGO_POR_AGENTE=true
+NEXT_PUBLIC_INSIGHTS_URL=<base del asistente de insights, sin barra final>
 ```
+
+`NEXT_PUBLIC_INSIGHTS_URL` es la base del asistente de insights del admin
+(`docs/INSIGHTS.md`); el navegador le habla directo. Con mocks el asistente
+responde "no disponible": no hay sesión de la que sacar un token.
 
 `SERVICE_AGENT_*` reemplazan a las antiguas `DEMO_AGENT_*`. Son la cuenta de
 servicio de las pantallas de cliente, que no tienen sesión: **solo** las leen

@@ -4,26 +4,47 @@
     {
       "name": "homelitics-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 3000
     },
     {
       "name": "homelitics-web-sin-mocks",
       "runtimeExecutable": "cmd",
-      "runtimeArgs": ["/c", "set USE_MOCKS=false&& set NEXT_PUBLIC_USE_MOCKS=false&& npm run dev -- -p 3001"],
+      "runtimeArgs": [
+        "/c",
+        "set USE_MOCKS=false&& set NEXT_PUBLIC_USE_MOCKS=false&& npm run dev -- -p 3001"
+      ],
       "port": 3001
     },
     {
       "name": "homelitics-web-sin-mocks-3003",
       "runtimeExecutable": "cmd",
-      "runtimeArgs": ["/c", "set USE_MOCKS=false&& set NEXT_PUBLIC_USE_MOCKS=false&& npm run dev -- -p 3003"],
+      "runtimeArgs": [
+        "/c",
+        "set USE_MOCKS=false&& set NEXT_PUBLIC_USE_MOCKS=false&& npm run dev -- -p 3003"
+      ],
       "port": 3003
     },
     {
       "name": "homelitics-web-mock-agent",
       "runtimeExecutable": "cmd",
-      "runtimeArgs": ["/c", "set MOCK_AGENT_ROLE=AGENT&& npm run dev -- -p 3004"],
+      "runtimeArgs": [
+        "/c",
+        "set USE_MOCKS=true&& set NEXT_PUBLIC_USE_MOCKS=true&& set MOCK_AGENT_ROLE=AGENT&& npm run dev -- -p 3004"
+      ],
       "port": 3004
+    },
+    {
+      "name": "homelitics-web-mock-admin",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set USE_MOCKS=true&& set NEXT_PUBLIC_USE_MOCKS=true&& set MOCK_AGENT_ROLE=TEAM_ADMIN&& npm run dev -- -p 3005"
+      ],
+      "port": 3005
     }
   ]
 }

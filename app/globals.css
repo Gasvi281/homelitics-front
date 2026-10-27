@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* `prose` para las respuestas en markdown del asistente de insights. */
+@plugin "@tailwindcss/typography";
 
 /*
  * Sistema visual "B + C": conversa como un asesor, cuenta como un analista.
@@ -142,5 +144,38 @@ body {
 
   .dialogo {
     @apply m-auto w-[min(36rem,calc(100%-2rem))] rounded-[28px] bg-white p-8 text-tinta shadow-[0_24px_60px_rgba(19,48,58,0.35)] backdrop:bg-tinta/55;
+  }
+
+  /*
+   * El `prose` del plugin con los tokens de la marca, para las respuestas
+   * del asistente (features/insights/components/MensajeInsights.tsx).
+   * Las tablas llevan bordes y encabezado en Hoja para leerse como datos.
+   */
+  .prose-insights {
+    --tw-prose-body: var(--color-tinta);
+    --tw-prose-headings: var(--color-tinta);
+    --tw-prose-bold: var(--color-tinta);
+    --tw-prose-links: var(--color-plano-texto);
+    --tw-prose-bullets: var(--color-tinta-tenue);
+    --tw-prose-counters: var(--color-tinta-tenue);
+    --tw-prose-code: var(--color-tinta);
+    --tw-prose-th-borders: var(--color-borde-fuerte);
+    --tw-prose-td-borders: var(--color-borde);
+    @apply text-[15px] leading-relaxed;
+  }
+  .prose-insights :where(table) {
+    @apply my-0 w-full border-collapse overflow-hidden rounded-xl bg-white text-sm;
+  }
+  .prose-insights :where(thead th) {
+    @apply bg-hoja px-3 py-2 text-left font-bold whitespace-nowrap;
+  }
+  .prose-insights :where(tbody td) {
+    @apply border-t border-borde px-3 py-2;
+  }
+  .prose-insights :where(> :first-child) {
+    @apply mt-0;
+  }
+  .prose-insights :where(> :last-child) {
+    @apply mb-0;
   }
 }

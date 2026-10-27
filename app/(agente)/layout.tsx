@@ -3,6 +3,8 @@ import { Suspense, type ReactNode } from "react";
 import { salir } from "@/app/entrar/acciones";
 import { AgenteActualProvider } from "@/features/agentes/AgenteActual";
 import { CentroAvisos } from "@/features/avisos/components/CentroAvisos";
+import { AsistenteInsights } from "@/features/insights/components/AsistenteInsights";
+import { InsightsProvider } from "@/features/insights/InsightsProvider";
 import { NavAgente } from "@/features/agentes/components/NavAgente";
 import { AlertaRiesgo } from "@/features/riesgo/components/AlertaRiesgo";
 import { obtenerAgenteActual } from "@/lib/agente-actual";
@@ -33,6 +35,10 @@ import Cargando from "./loading";
  * derecha, `AlertaRiesgo` (2.16 — HU-10 AC2) con el umbral de la cookie, el
  * mismo que lee el tablero, y `CentroAvisos` (2.33): los avisos del agente
  * y sus recordatorios vencidos (2.26 — HU-11 AC2), en dos pestañas.
+ *
+ * Solo a `TEAM_ADMIN` se le monta el asistente de insights (botón flotante y
+ * panel lateral, docs/INSIGHTS.md): un `AGENT` no recibe ni su estado. Si
+ * GET /me falló (`agente = null`) tampoco, como con lo demás de admin.
  */
 export default function AgenteLayout({ children }: { children: ReactNode }) {
   return (
@@ -56,27 +62,38 @@ async function ConAgente({ children }: { children: ReactNode }) {
 
   const umbral = await leerUmbral();
 
+  const contenido = (
+    <div className="flex min-h-screen flex-col lg:flex-row">
+      <NavAgente
+        agente={agente}
+        salir={
+          <form action={salir}>
+            <button type="submit" className="mt-2 text-sm font-semibold text-white underline focus-visible:outline-sol">
+              Salir
+            </button>
+          </form>
+        }
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-h-14 items-center justify-end gap-3 px-9 pt-5 empty:hidden">
+          <AlertaRiesgo umbral={umbral} />
+          <CentroAvisos />
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+
   return (
     <AgenteActualProvider agente={agente}>
-      <div className="flex min-h-screen flex-col lg:flex-row">
-        <NavAgente
-          agente={agente}
-          salir={
-            <form action={salir}>
-              <button type="submit" className="mt-2 text-sm font-semibold text-white underline focus-visible:outline-sol">
-                Salir
-              </button>
-            </form>
-          }
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-h-14 items-center justify-end gap-3 px-9 pt-5 empty:hidden">
-            <AlertaRiesgo umbral={umbral} />
-            <CentroAvisos />
-          </div>
-          {children}
-        </div>
-      </div>
+      {agente?.role === "TEAM_ADMIN" ? (
+        <InsightsProvider>
+          {contenido}
+          <AsistenteInsights />
+        </InsightsProvider>
+      ) : (
+        contenido
+      )}
     </AgenteActualProvider>
   );
 }

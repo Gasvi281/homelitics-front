@@ -3,6 +3,7 @@
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider, type Mutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { PREFIJO_AVISOS } from "@/features/avisos/claves";
+import { CLAVE_INSIGHTS } from "@/features/insights/claves";
 import { HomeliticsError } from "@/lib/errores";
 
 /**
@@ -33,6 +34,8 @@ import { HomeliticsError } from "@/lib/errores";
  * de que el agente actúe sobre un lead o una visita, porque eso puede
  * generar uno. Se salta las mutaciones de avisos (su `mutationKey` empieza
  * por `PREFIJO_AVISOS`): esas ya cambiaron el caché y no deben releer.
+ * También las del asistente de insights (`CLAVE_INSIGHTS`): preguntar no
+ * cambia nada en el API.
  */
 function alEntrarSiVencio(error: unknown) {
   if (!(error instanceof HomeliticsError) || error.kind !== "no_autenticado") return;
@@ -46,7 +49,8 @@ function alEntrarSiVencio(error: unknown) {
  * avisos puede tardar un minuto.
  */
 function releerAvisos(qc: QueryClient, mutation: Mutation<unknown, unknown, unknown, unknown>) {
-  if (mutation.options.mutationKey?.[0] === PREFIJO_AVISOS[0]) return;
+  const prefijo = mutation.options.mutationKey?.[0];
+  if (prefijo === PREFIJO_AVISOS[0] || prefijo === CLAVE_INSIGHTS[0]) return;
   void qc.invalidateQueries({ queryKey: PREFIJO_AVISOS });
 }
 
